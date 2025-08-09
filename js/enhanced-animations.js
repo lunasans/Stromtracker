@@ -1,5 +1,5 @@
 // js/enhanced-animations.js
-// Phase 1: Basic Micro-Animations & Enhanced Interactions
+// Fixed Version - Robuste Event Handling ohne closest() Fehler
 
 class EnhancedAnimations {
     constructor() {
@@ -11,24 +11,72 @@ class EnhancedAnimations {
     }
     
     // ========================================
+    // UTILITY - Sichere Element-Prüfung
+    // ========================================
+    
+    /**
+     * Sichere Implementierung von closest() mit Null-Checks
+     * @param {Event|Element} target - Event target oder DOM Element
+     * @param {string} selector - CSS Selector
+     * @returns {Element|null}
+     */
+    safeClosest(target, selector) {
+        // Event-Objekt extrahieren falls nötig
+        const element = target?.target || target;
+        
+        // Prüfen ob element existiert und closest-Methode hat
+        if (!element || typeof element.closest !== 'function') {
+            return null;
+        }
+        
+        try {
+            return element.closest(selector);
+        } catch (error) {
+            console.warn('[EnhancedAnimations] Safe closest error:', error);
+            return null;
+        }
+    }
+    
+    /**
+     * Prüft ob ein Event-Target ein gültiges Element ist
+     * @param {Event} event - Das Event-Objekt
+     * @returns {boolean}
+     */
+    isValidEventTarget(event) {
+        return event && 
+               event.target && 
+               event.target.nodeType === Node.ELEMENT_NODE &&
+               typeof event.target.closest === 'function';
+    }
+    
+    // ========================================
     // Initialisierung
     // ========================================
     init() {
         if (this.initialized) return;
         
         try {
-            this.setupIntersectionObserver();
-            this.setupCountUpAnimations();
-            this.setupStaggeredAnimations();
-            this.setupHoverEffects();
-            this.setupClickFeedback();
-            this.setupLoadingStates();
+            // DOM bereit prüfen
+            if (document.readyState === 'loading') {
+                document.addEventListener('DOMContentLoaded', () => this.setupAnimations());
+            } else {
+                this.setupAnimations();
+            }
             
             this.initialized = true;
             console.log('[EnhancedAnimations] Initialized successfully');
         } catch (error) {
             console.error('[EnhancedAnimations] Initialization failed:', error);
         }
+    }
+    
+    setupAnimations() {
+        this.setupIntersectionObserver();
+        this.setupCountUpAnimations();
+        this.setupStaggeredAnimations();
+        this.setupHoverEffects();
+        this.setupClickFeedback();
+        this.setupLoadingStates();
     }
     
     // ========================================
@@ -70,55 +118,75 @@ class EnhancedAnimations {
     
     animateOnScroll(element, ratio) {
         try {
-            // Basis-Animation hinzufügen
-            if (!element.classList.contains('animated')) {
-                element.style.opacity = '0';
-                element.style.transform = 'translateY(30px)';
-                element.style.transition = 'all 0.6s cubic-bezier(0.4, 0, 0.2, 1)';
-                
-                // Staggered Delay basierend auf Position
-                const delay = this.calculateStaggerDelay(element);
-                element.style.transitionDelay = delay + 'ms';
-                
-                requestAnimationFrame(() => {
-                    element.style.opacity = '1';
-                    element.style.transform = 'translateY(0)';
-                    element.classList.add('animated');
-                });
-            }
+            // Basis-Animation je nach Attribut oder Klasse
+            const animationType = element.getAttribute('data-animate') || 'fade-up';
             
-            // Parallax-Effekt für bestimmte Elemente
-            if (element.hasAttribute('data-parallax')) {
-                const speed = parseFloat(element.getAttribute('data-parallax')) || 0.5;
-                const yPos = -(ratio * speed * 50);
-                element.style.transform = `translateY(${yPos}px)`;
+            switch (animationType) {
+                case 'fade-up':
+                    this.animateFadeUp(element);
+                    break;
+                case 'fade-in':
+                    this.animateFadeIn(element);
+                    break;
+                case 'slide-left':
+                    this.animateSlideLeft(element);
+                    break;
+                case 'scale':
+                    this.animateScale(element);
+                    break;
+                default:
+                    this.animateFadeUp(element);
             }
         } catch (error) {
             console.error('[EnhancedAnimations] Scroll animation error:', error);
         }
     }
     
-    calculateStaggerDelay(element) {
-        // Berechne Verzögerung basierend auf Element-Position
-        const rect = element.getBoundingClientRect();
-        const viewportHeight = window.innerHeight;
-        const distanceFromTop = rect.top;
-        
-        // Je näher zur Mitte, desto weniger Verzögerung
-        const normalizedDistance = Math.abs(distanceFromTop - viewportHeight / 2) / viewportHeight;
-        return Math.min(normalizedDistance * 200, 500);
+    // ========================================
+    // Animation Methoden
+    // ========================================
+    animateFadeUp(element) {
+        element.style.cssText = `
+            opacity: 1 !important;
+            transform: translateY(0) !important;
+            transition: all 0.6s cubic-bezier(0.4, 0, 0.2, 1) !important;
+        `;
+    }
+    
+    animateFadeIn(element) {
+        element.style.cssText = `
+            opacity: 1 !important;
+            transition: opacity 0.6s ease !important;
+        `;
+    }
+    
+    animateSlideLeft(element) {
+        element.style.cssText = `
+            opacity: 1 !important;
+            transform: translateX(0) !important;
+            transition: all 0.6s cubic-bezier(0.4, 0, 0.2, 1) !important;
+        `;
+    }
+    
+    animateScale(element) {
+        element.style.cssText = `
+            opacity: 1 !important;
+            transform: scale(1) !important;
+            transition: all 0.6s cubic-bezier(0.4, 0, 0.2, 1) !important;
+        `;
     }
     
     // ========================================
     // Count-Up Animationen
     // ========================================
     setupCountUpAnimations() {
-        const countElements = document.querySelectorAll('[data-countup]');
+        const countElements = document.querySelectorAll('.count-up, [data-count-up]');
         
         countElements.forEach(el => {
-            const target = parseFloat(el.getAttribute('data-countup'));
+            const target = parseFloat(el.getAttribute('data-target') || el.textContent);
             const duration = parseInt(el.getAttribute('data-duration')) || 2000;
-            const decimals = (el.getAttribute('data-decimals')) ? parseInt(el.getAttribute('data-decimals')) : 0;
+            const decimals = el.hasAttribute('data-decimals') ? 
+                parseInt(el.getAttribute('data-decimals')) : 0;
             
             if (!isNaN(target)) {
                 this.setupCountUpObserver(el, target, duration, decimals);
@@ -145,16 +213,6 @@ class EnhancedAnimations {
             const range = target - start;
             const startTime = performance.now();
             
-            const counter = {
-                element,
-                target,
-                current: start,
-                startTime,
-                duration
-            };
-            
-            this.counters.set(element, counter);
-            
             const animate = (currentTime) => {
                 const elapsed = currentTime - startTime;
                 const progress = Math.min(elapsed / duration, 1);
@@ -172,7 +230,6 @@ class EnhancedAnimations {
                 } else {
                     // Final value sicherstellen
                     element.textContent = this.formatCountUpValue(target, decimals);
-                    this.counters.delete(element);
                 }
             };
             
@@ -229,60 +286,80 @@ class EnhancedAnimations {
     }
     
     // ========================================
-    // Enhanced Hover Effects
+    // Enhanced Hover Effects - FIXED VERSION
     // ========================================
     setupHoverEffects() {
-        // Energy Indicator Hover
-        document.addEventListener('mouseenter', (e) => {
-            if (e.target.closest('.energy-indicator')) {
-                const indicator = e.target.closest('.energy-indicator');
-                this.enhanceEnergyIndicator(indicator);
-            }
+        try {
+            // Mouseenter Event - mit sicherer closest() Verwendung
+            document.addEventListener('mouseenter', (e) => {
+                if (!this.isValidEventTarget(e)) return;
+                
+                // Energy Indicator Hover
+                const energyIndicator = this.safeClosest(e, '.energy-indicator');
+                if (energyIndicator) {
+                    this.enhanceEnergyIndicator(energyIndicator);
+                }
+                
+                // Stats Card Hover
+                const statsCard = this.safeClosest(e, '.stats-card-enhanced');
+                if (statsCard) {
+                    this.enhanceStatsCardHover(statsCard);
+                }
+                
+                // Button Hover
+                const button = this.safeClosest(e, '.btn-enhanced');
+                if (button) {
+                    this.enhanceButtonHover(button);
+                }
+            }, { passive: true, capture: true });
             
-            // Stats Card Hover
-            if (e.target.closest('.stats-card-enhanced')) {
-                const card = e.target.closest('.stats-card-enhanced');
-                this.enhanceStatsCardHover(card);
-            }
+            // Mouseleave Event - mit sicherer closest() Verwendung
+            document.addEventListener('mouseleave', (e) => {
+                if (!this.isValidEventTarget(e)) return;
+                
+                // Energy Indicator Reset
+                const energyIndicator = this.safeClosest(e, '.energy-indicator');
+                if (energyIndicator) {
+                    this.resetEnergyIndicator(energyIndicator);
+                }
+                
+                // Stats Card Reset
+                const statsCard = this.safeClosest(e, '.stats-card-enhanced');
+                if (statsCard) {
+                    this.resetStatsCardHover(statsCard);
+                }
+                
+                // Button Reset
+                const button = this.safeClosest(e, '.btn-enhanced');
+                if (button) {
+                    this.resetButtonHover(button);
+                }
+            }, { passive: true, capture: true });
             
-            // Button Hover
-            if (e.target.closest('.btn-enhanced')) {
-                const button = e.target.closest('.btn-enhanced');
-                this.enhanceButtonHover(button);
-            }
-        }, true);
-        
-        document.addEventListener('mouseleave', (e) => {
-            if (e.target.closest('.energy-indicator')) {
-                const indicator = e.target.closest('.energy-indicator');
-                this.resetEnergyIndicator(indicator);
-            }
-            
-            if (e.target.closest('.stats-card-enhanced')) {
-                const card = e.target.closest('.stats-card-enhanced');
-                this.resetStatsCardHover(card);
-            }
-            
-            if (e.target.closest('.btn-enhanced')) {
-                const button = e.target.closest('.btn-enhanced');
-                this.resetButtonHover(button);
-            }
-        }, true);
+        } catch (error) {
+            console.error('[EnhancedAnimations] Hover effects setup error:', error);
+        }
     }
     
     enhanceEnergyIndicator(indicator) {
+        if (!indicator) return;
+        
         indicator.style.transform = 'scale(1.3)';
         indicator.style.filter = 'brightness(1.2)';
         indicator.style.animationDuration = '1s';
     }
     
     resetEnergyIndicator(indicator) {
+        if (!indicator) return;
+        
         indicator.style.transform = '';
         indicator.style.filter = '';
         indicator.style.animationDuration = '';
     }
     
     enhanceStatsCardHover(card) {
+        if (!card) return;
+        
         // Subtle glow effect
         card.style.boxShadow = '0 20px 40px rgba(0, 0, 0, 0.1), 0 0 0 1px rgba(251, 191, 36, 0.3)';
         
@@ -301,6 +378,8 @@ class EnhancedAnimations {
     }
     
     resetStatsCardHover(card) {
+        if (!card) return;
+        
         card.style.boxShadow = '';
         
         const indicator = card.querySelector('.energy-indicator');
@@ -315,7 +394,12 @@ class EnhancedAnimations {
     }
     
     enhanceButtonHover(button) {
+        if (!button) return;
+        
         // Ripple effect
+        const existingRipple = button.querySelector('.button-ripple');
+        if (existingRipple) return; // Prevent multiple ripples
+        
         const ripple = document.createElement('span');
         ripple.className = 'button-ripple';
         ripple.style.cssText = `
@@ -325,6 +409,7 @@ class EnhancedAnimations {
             transform: scale(0);
             animation: ripple 0.6s linear;
             pointer-events: none;
+            z-index: 0;
         `;
         
         const rect = button.getBoundingClientRect();
@@ -333,6 +418,7 @@ class EnhancedAnimations {
         ripple.style.left = (rect.width / 2 - size / 2) + 'px';
         ripple.style.top = (rect.height / 2 - size / 2) + 'px';
         
+        button.style.position = 'relative';
         button.appendChild(ripple);
         
         setTimeout(() => {
@@ -343,32 +429,45 @@ class EnhancedAnimations {
     }
     
     resetButtonHover(button) {
+        if (!button) return;
         // Cleanup wird durch timeout gehandelt
     }
     
     // ========================================
-    // Click Feedback
+    // Click Feedback - FIXED VERSION
     // ========================================
     setupClickFeedback() {
-        document.addEventListener('click', (e) => {
-            // Stats Card Click
-            if (e.target.closest('.stats-card-enhanced')) {
-                this.animateStatsCardClick(e.target.closest('.stats-card-enhanced'));
-            }
+        try {
+            document.addEventListener('click', (e) => {
+                if (!this.isValidEventTarget(e)) return;
+                
+                // Stats Card Click
+                const statsCard = this.safeClosest(e, '.stats-card-enhanced');
+                if (statsCard) {
+                    this.animateStatsCardClick(statsCard);
+                }
+                
+                // Button Click
+                const button = this.safeClosest(e, '.btn-enhanced');
+                if (button) {
+                    this.animateButtonClick(button, e);
+                }
+                
+                // General interactive elements
+                const feedbackElement = this.safeClosest(e, '[data-click-feedback]');
+                if (feedbackElement) {
+                    this.animateClickFeedback(feedbackElement);
+                }
+            }, { passive: true });
             
-            // Button Click
-            if (e.target.closest('.btn-enhanced')) {
-                this.animateButtonClick(e.target.closest('.btn-enhanced'), e);
-            }
-            
-            // General interactive elements
-            if (e.target.closest('[data-click-feedback]')) {
-                this.animateClickFeedback(e.target.closest('[data-click-feedback]'));
-            }
-        });
+        } catch (error) {
+            console.error('[EnhancedAnimations] Click feedback setup error:', error);
+        }
     }
     
     animateStatsCardClick(card) {
+        if (!card) return;
+        
         card.style.transform = 'scale(0.98)';
         card.style.transition = 'transform 0.1s ease';
         
@@ -380,77 +479,78 @@ class EnhancedAnimations {
         // Value pulse animation
         const statsValue = card.querySelector('.stats-value');
         if (statsValue) {
-            statsValue.classList.add('animate-pulse-once');
+            statsValue.classList.add('pulse-animation');
             setTimeout(() => {
-                statsValue.classList.remove('animate-pulse-once');
+                statsValue.classList.remove('pulse-animation');
             }, 600);
         }
     }
     
     animateButtonClick(button, event) {
-        // Create click ripple
-        const ripple = document.createElement('span');
-        const rect = button.getBoundingClientRect();
-        const size = Math.max(rect.width, rect.height);
+        if (!button) return;
         
-        ripple.style.cssText = `
-            position: absolute;
-            border-radius: 50%;
-            background: rgba(255, 255, 255, 0.6);
-            transform: scale(0);
-            animation: clickRipple 0.4s ease-out;
-            pointer-events: none;
-            z-index: 1;
-        `;
-        
-        ripple.style.width = ripple.style.height = size + 'px';
-        ripple.style.left = (event.clientX - rect.left - size / 2) + 'px';
-        ripple.style.top = (event.clientY - rect.top - size / 2) + 'px';
-        
-        button.appendChild(ripple);
+        // Scale animation
+        button.style.transform = 'scale(0.95)';
+        button.style.transition = 'transform 0.1s ease';
         
         setTimeout(() => {
-            if (ripple.parentNode) {
-                ripple.parentNode.removeChild(ripple);
-            }
-        }, 400);
+            button.style.transform = '';
+            button.style.transition = '';
+        }, 150);
     }
     
     animateClickFeedback(element) {
-        element.style.transform = 'scale(0.95)';
+        if (!element) return;
+        
+        element.style.transform = 'scale(0.97)';
+        element.style.transition = 'transform 0.15s ease';
+        
         setTimeout(() => {
             element.style.transform = '';
-        }, 100);
+            element.style.transition = '';
+        }, 150);
     }
     
     // ========================================
     // Loading States
     // ========================================
     setupLoadingStates() {
-        // Auto-setup für loading skeletons
-        document.querySelectorAll('.loading-skeleton').forEach(skeleton => {
-            this.animateLoadingSkeleton(skeleton);
-        });
-    }
-    
-    animateLoadingSkeleton(skeleton) {
-        skeleton.style.background = `
-            linear-gradient(90deg, 
-                var(--neutral-200) 25%, 
-                var(--neutral-100) 50%, 
-                var(--neutral-200) 75%
-            )
-        `;
-        skeleton.style.backgroundSize = '200% 100%';
-        skeleton.style.animation = 'loading 1.5s infinite';
+        // Add CSS for pulse animation if not present
+        if (!document.getElementById('enhanced-animations-styles')) {
+            const style = document.createElement('style');
+            style.id = 'enhanced-animations-styles';
+            style.textContent = `
+                .pulse-animation {
+                    animation: pulse-scale 0.6s ease-in-out;
+                }
+                
+                @keyframes pulse-scale {
+                    0% { transform: scale(1); }
+                    50% { transform: scale(1.1); }
+                    100% { transform: scale(1); }
+                }
+                
+                @keyframes ripple {
+                    to {
+                        transform: scale(4);
+                        opacity: 0;
+                    }
+                }
+            `;
+            document.head.appendChild(style);
+        }
     }
     
     // ========================================
-    // Utility Methods
+    // Public API Methods
     // ========================================
     
-    // Smooth reveal animation
+    /**
+     * Element mit Animation einblenden
+     */
     revealElement(element, direction = 'up') {
+        if (!element) return;
+        
         const directions = {
             up: 'translateY(30px)',
             down: 'translateY(-30px)',
@@ -469,8 +569,12 @@ class EnhancedAnimations {
         });
     }
     
-    // Batch reveal für mehrere Elemente
+    /**
+     * Mehrere Elemente mit Verzögerung einblenden
+     */
     revealElements(elements, staggerDelay = 100) {
+        if (!elements || !elements.length) return;
+        
         elements.forEach((element, index) => {
             setTimeout(() => {
                 this.revealElement(element);
@@ -478,27 +582,9 @@ class EnhancedAnimations {
         });
     }
     
-    // Theme-aware color animation
-    animateColorChange(element, property, fromColor, toColor, duration = 300) {
-        const startTime = performance.now();
-        
-        const animate = (currentTime) => {
-            const elapsed = currentTime - startTime;
-            const progress = Math.min(elapsed / duration, 1);
-            
-            // Simple color interpolation (works with CSS custom properties)
-            element.style.setProperty(property, toColor);
-            element.style.transition = `${property} ${duration}ms ease`;
-            
-            if (progress >= 1) {
-                element.style.transition = '';
-            }
-        };
-        
-        requestAnimationFrame(animate);
-    }
-    
-    // Performance-friendly debounce
+    /**
+     * Performance-friendly debounce
+     */
     debounce(func, wait) {
         let timeout;
         return function executedFunction(...args) {
@@ -511,97 +597,53 @@ class EnhancedAnimations {
         };
     }
     
-    // Cleanup-Methode
+    /**
+     * Cleanup-Methode
+     */
     destroy() {
-        this.observers.forEach(observer => observer.disconnect());
-        this.observers.clear();
-        this.counters.clear();
-        this.initialized = false;
+        try {
+            this.observers.forEach(observer => observer.disconnect());
+            this.observers.clear();
+            this.counters.clear();
+            this.initialized = false;
+            
+            console.log('[EnhancedAnimations] Destroyed successfully');
+        } catch (error) {
+            console.error('[EnhancedAnimations] Destroy error:', error);
+        }
     }
 }
 
 // ========================================
-// Additional Animation Keyframes (via JavaScript)
+// Auto-Initialisierung & Error Handling
 // ========================================
-function injectAnimationKeyframes() {
-    const style = document.createElement('style');
-    style.textContent = `
-        @keyframes ripple {
-            to {
-                transform: scale(4);
-                opacity: 0;
-            }
-        }
-        
-        @keyframes clickRipple {
-            to {
-                transform: scale(3);
-                opacity: 0;
-            }
-        }
-        
-        @keyframes animate-pulse-once {
-            0%, 100% { transform: scale(1); }
-            50% { transform: scale(1.05); }
-        }
-        
-        .animate-pulse-once {
-            animation: animate-pulse-once 0.6s ease-in-out;
-        }
-        
-        @keyframes float {
-            0%, 100% { transform: translateY(0px); }
-            50% { transform: translateY(-10px); }
-        }
-        
-        .animate-float {
-            animation: float 3s ease-in-out infinite;
-        }
-        
-        @keyframes bounce-subtle {
-            0%, 100% { transform: translateY(0); }
-            50% { transform: translateY(-5px); }
-        }
-        
-        .animate-bounce-subtle {
-            animation: bounce-subtle 2s ease-in-out infinite;
-        }
-    `;
-    document.head.appendChild(style);
-}
 
-// ========================================
-// Initialisierung
-// ========================================
+// Global Error Handler für unerwartete Fehler
+window.addEventListener('error', (e) => {
+    if (e.message && e.message.includes('closest')) {
+        console.warn('[EnhancedAnimations] Caught closest() error:', e.message);
+        // Event wird nicht weiter propagiert um andere Scripts nicht zu beeinträchtigen
+        e.preventDefault();
+    }
+});
+
+// Sichere Initialisierung
 let enhancedAnimationsInstance = null;
 
-function initEnhancedAnimations() {
-    try {
-        if (!enhancedAnimationsInstance) {
-            // Keyframes injizieren
-            injectAnimationKeyframes();
-            
-            // Animations-System initialisieren
+try {
+    // DOM bereit prüfen
+    if (document.readyState === 'loading') {
+        document.addEventListener('DOMContentLoaded', () => {
             enhancedAnimationsInstance = new EnhancedAnimations();
-            
-            // Global verfügbar machen
-            window.enhancedAnimations = enhancedAnimationsInstance;
-            
-            console.log('[EnhancedAnimations] System initialized successfully');
-        }
-    } catch (error) {
-        console.error('[EnhancedAnimations] Failed to initialize:', error);
+        });
+    } else {
+        // DOM bereits geladen
+        enhancedAnimationsInstance = new EnhancedAnimations();
     }
+} catch (error) {
+    console.error('[EnhancedAnimations] Failed to initialize:', error);
 }
 
-// DOM Ready Detection
-if (document.readyState === 'loading') {
-    document.addEventListener('DOMContentLoaded', initEnhancedAnimations);
-} else {
-    initEnhancedAnimations();
-}
-
-// Export für Module
-if (typeof module !== 'undefined' && module.exports) {
-    module.exports = { EnhancedAnimations, initEnhancedAnimations };
-}
+// Global verfügbar machen für manuelle Kontrolle
+window.EnhancedAnimations = EnhancedAnimations;
+window.enhancedAnimations = enhancedAnimationsInstance;

@@ -4,55 +4,62 @@
 ?>
 <!DOCTYPE html>
 <html lang="de">
+
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <meta name="theme-color" content="#f59e0b">
     <meta name="description" content="Moderne Stromverbrauchsverwaltung - Effizient, übersichtlich, nachhaltig">
-    
+
     <title><?= $pageTitle ?? 'Stromtracker - Moderne Energieverwaltung' ?></title>
-    
+
     <!-- Preload kritische Ressourcen -->
-    <link rel="preload" href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;900&family=Inter+Display:wght@400;500;600;700&display=swap" as="style">
+    <link rel="preload"
+        href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;900&family=Inter+Display:wght@400;500;600;700&display=swap"
+        as="style">
     <link rel="preload" href="css/enhanced-design-system.css" as="style">
     <link rel="preload" href="js/enhanced-animations.js" as="script">
-    
+
     <!-- Google Fonts (Inter Family) -->
-    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;900&family=Inter+Display:wght@400;500;600;700&display=swap" rel="stylesheet">
-    
+    <link
+        href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;900&family=Inter+Display:wght@400;500;600;700&display=swap"
+        rel="stylesheet">
+
     <!-- Bootstrap CSS -->
-    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css" rel="stylesheet" 
-          integrity="sha384-T3c6CoIi6uLrA9TneNEoa7RxnatzjcDSCmG1MXxSR1GAsXEV/Dwwykc2MPK8M2HN" crossorigin="anonymous">
-    
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css" rel="stylesheet"
+        integrity="sha384-T3c6CoIi6uLrA9TneNEoa7RxnatzjcDSCmG1MXxSR1GAsXEV/Dwwykc2MPK8M2HN" crossorigin="anonymous">
+
     <!-- Bootstrap Icons -->
     <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.2/font/bootstrap-icons.css" rel="stylesheet">
-    
+
     <!-- Design System -->
-    <!--  <link href="css/style.css" rel="stylesheet"> -->
-    <link href="css/modern-styles.css" rel="stylesheet">
     <link href="css/enhanced-design-system.css" rel="stylesheet">
+    <link href="css/modern-styles.css" rel="stylesheet">
+    <link href="css/enhanced-forms.css" rel="stylesheet">
+    <link href="css/enhanced-loading.css" rel="stylesheet">
     
     <!-- Chart.js für Diagramme -->
     <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.js" defer></script>
-    
+
     <!-- PWA Manifest -->
     <link rel="manifest" href="manifest.json">
-    
+
     <!-- iOS Meta Tags -->
     <meta name="apple-mobile-web-app-capable" content="yes">
     <meta name="apple-mobile-web-app-status-bar-style" content="default">
     <meta name="apple-mobile-web-app-title" content="Stromtracker">
-    
+
     <!-- Favicon -->
     <link rel="icon" type="image/x-icon" href="favicon.ico">
     <link rel="apple-touch-icon" href="apple-touch-icon.png">
-    
+
     <!-- Open Graph Meta Tags -->
     <meta property="og:title" content="<?= $pageTitle ?? 'Stromtracker' ?>">
     <meta property="og:description" content="Moderne Stromverbrauchsverwaltung">
     <meta property="og:type" content="website">
-    <meta property="og:url" content="<?= (isset($_SERVER['HTTPS']) ? 'https' : 'http') . '://' . $_SERVER['HTTP_HOST'] . $_SERVER['REQUEST_URI'] ?>">
-    
+    <meta property="og:url"
+        content="<?= (isset($_SERVER['HTTPS']) ? 'https' : 'http') . '://' . $_SERVER['HTTP_HOST'] . $_SERVER['REQUEST_URI'] ?>">
+
     <!-- Critical CSS Inlining für Performance -->
     <style>
         /* Critical CSS für Above-the-fold Content */
@@ -66,7 +73,7 @@
             -webkit-font-smoothing: antialiased;
             -moz-osx-font-smoothing: grayscale;
         }
-        
+
         /* Loading Screen */
         .loading-screen {
             position: fixed;
@@ -81,17 +88,17 @@
             z-index: 9999;
             transition: opacity 0.5s ease, visibility 0.5s ease;
         }
-        
+
         .loading-screen.hidden {
             opacity: 0;
             visibility: hidden;
         }
-        
+
         .loading-content {
             text-align: center;
             color: white;
         }
-        
+
         .loading-spinner {
             width: 60px;
             height: 60px;
@@ -101,33 +108,38 @@
             animation: spin 1s linear infinite;
             margin: 0 auto 20px;
         }
-        
+
         @keyframes spin {
-            0% { transform: rotate(0deg); }
-            100% { transform: rotate(360deg); }
+            0% {
+                transform: rotate(0deg);
+            }
+
+            100% {
+                transform: rotate(360deg);
+            }
         }
-        
+
         .loading-text {
             font-size: 1.25rem;
             font-weight: 600;
             margin-bottom: 10px;
         }
-        
+
         .loading-subtitle {
             font-size: 0.875rem;
             opacity: 0.8;
         }
-        
+
         /* Prevent FOUC */
         .enhanced-content {
             opacity: 0;
             transition: opacity 0.6s ease;
         }
-        
+
         .enhanced-content.loaded {
             opacity: 1;
         }
-        
+
         /* Energy Indicator Animation */
         .energy-indicator {
             width: 12px;
@@ -138,32 +150,35 @@
             display: inline-block;
             margin-right: 8px;
         }
-        
+
         @keyframes energyPulse {
-            0%, 100% { 
+
+            0%,
+            100% {
                 transform: scale(1);
                 box-shadow: 0 0 0 0 rgba(251, 191, 36, 0.7);
             }
-            50% { 
+
+            50% {
                 transform: scale(1.1);
                 box-shadow: 0 0 0 10px rgba(251, 191, 36, 0);
             }
         }
     </style>
-    
+
     <!-- Theme Detection Script (ASAP) -->
     <script>
         // Theme Detection vor dem Laden der Seite
-        (function() {
+        (function () {
             const savedTheme = localStorage.getItem('stromtracker-theme') || 'auto';
-            
+
             if (savedTheme === 'auto') {
                 const prefersDark = window.matchMedia('(prefers-color-scheme: dark)').matches;
                 document.documentElement.setAttribute('data-theme', prefersDark ? 'dark' : 'light');
             } else {
                 document.documentElement.setAttribute('data-theme', savedTheme);
             }
-            
+
             // Reduced Motion Detection
             if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) {
                 document.documentElement.setAttribute('data-reduced-motion', 'true');
@@ -171,6 +186,7 @@
         })();
     </script>
 </head>
+
 <body class="enhanced-content" data-theme="light">
 
     <!-- Enhanced Loading Screen -->
@@ -193,7 +209,7 @@
     if (class_exists('Flash') && Flash::has()) {
         echo '<div class="container-fluid mt-2" role="alert" data-animate="slide-in-up">' . Flash::display() . '</div>';
     }
-    
+
     // Page-spezifische Meta-Informationen
     $currentPage = basename($_SERVER['PHP_SELF'], '.php');
     $pageConfig = $pageConfig ?? [
@@ -245,7 +261,7 @@
             startTime: performance.now(),
             loadEvents: []
         };
-        
+
         // Critical Enhancement Functions
         function addLoadEvent(name) {
             window.performanceMetrics.loadEvents.push({
@@ -253,73 +269,73 @@
                 time: performance.now()
             });
         }
-        
+
         // Early DOM Enhancement
-        document.addEventListener('DOMContentLoaded', function() {
+        document.addEventListener('DOMContentLoaded', function () {
             addLoadEvent('DOM Ready');
-            
+
             // Enhanced Loading vervollständigen
             setTimeout(() => {
                 const loadingScreen = document.getElementById('loadingScreen');
                 const content = document.body;
-                
+
                 if (loadingScreen) {
                     loadingScreen.classList.add('hidden');
                     setTimeout(() => {
                         loadingScreen.remove();
                     }, 500);
                 }
-                
+
                 content.classList.add('loaded');
                 addLoadEvent('Enhanced Loading Complete');
             }, 300);
         });
-        
+
         // Window Load Performance
-        window.addEventListener('load', function() {
+        window.addEventListener('load', function () {
             addLoadEvent('Window Load');
-            
+
             const totalTime = performance.now() - window.performanceMetrics.startTime;
             console.log(`[Enhanced Design] Page loaded in ${Math.round(totalTime)}ms`);
-            
+
             // Performance Metrics ausgeben (Development)
             if (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1') {
                 console.table(window.performanceMetrics.loadEvents);
             }
         });
-        
+
         // Service Worker registrieren (PWA Enhancement)
         if ('serviceWorker' in navigator) {
-            window.addEventListener('load', function() {
+            window.addEventListener('load', function () {
                 navigator.serviceWorker.register('/sw.js')
-                    .then(function(registration) {
+                    .then(function (registration) {
                         console.log('[Enhanced PWA] SW registered: ', registration);
                         addLoadEvent('Service Worker Registered');
                     })
-                    .catch(function(registrationError) {
+                    .catch(function (registrationError) {
                         console.log('[Enhanced PWA] SW registration failed: ', registrationError);
                     });
             });
         }
-        
+
         // Theme Toggle Functionality
         function initThemeToggle() {
             const toggle = document.getElementById('themeToggle');
             const icon = document.getElementById('themeIcon');
-            
+
             if (toggle && icon) {
                 // Initial icon state
                 const currentTheme = document.documentElement.getAttribute('data-theme');
                 updateThemeIcon(icon, currentTheme);
-                
-                toggle.addEventListener('click', function() {
+
+                toggle.addEventListener('click', function () {
                     const current = document.documentElement.getAttribute('data-theme');
                     const newTheme = current === 'dark' ? 'light' : 'dark';
-                    
+
                     document.documentElement.setAttribute('data-theme', newTheme);
                     localStorage.setItem('stromtracker-theme', newTheme);
                     updateThemeIcon(icon, newTheme);
-                    
+
                     // Smooth transition
                     document.body.style.transition = 'background-color 0.3s ease, color 0.3s ease';
                     setTimeout(() => {
@@ -328,7 +344,7 @@
                 });
             }
         }
-        
+
         function updateThemeIcon(icon, theme) {
             if (theme === 'dark') {
                 icon.className = 'bi bi-sun';
@@ -336,30 +352,30 @@
                 icon.className = 'bi bi-moon-stars';
             }
         }
-        
+
         // Theme Toggle nach DOM Ready
         document.addEventListener('DOMContentLoaded', initThemeToggle);
-        
+
         // Enhanced Error Handling
-        window.addEventListener('error', function(e) {
+        window.addEventListener('error', function (e) {
             console.error('[Enhanced Design] JavaScript Error:', e.error);
             // Graceful degradation - continue ohne Animations
         });
-        
-        window.addEventListener('unhandledrejection', function(e) {
+
+        window.addEventListener('unhandledrejection', function (e) {
             console.error('[Enhanced Design] Promise Rejection:', e.reason);
         });
     </script>
 
     <!-- Enhanced Design System wird nach DOM Ready geladen -->
     <script>
-        document.addEventListener('DOMContentLoaded', function() {
+        document.addEventListener('DOMContentLoaded', function () {
             // Enhanced Animations laden
             const script = document.createElement('script');
             script.src = 'js/enhanced-animations.js';
             script.defer = true;
             document.head.appendChild(script);
-            
+
             addLoadEvent('Enhanced Animations Script Loaded');
         });
     </script>

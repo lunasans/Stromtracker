@@ -1,29 +1,7 @@
 /* css/enhanced-forms.css */
 /* Enhanced Form Components für Stromtracker */
 
-/* ============================================
-   ENHANCED FORM SYSTEM
-   ============================================ */
 
-/* Base Form Styling */
-.form-enhanced {
-    --form-border-color: var(--neutral-300);
-    --form-border-focus: var(--energy-500);
-    --form-bg: var(--neutral-0);
-    --form-text: var(--neutral-900);
-    --form-placeholder: var(--neutral-500);
-    --form-success: var(--success-500);
-    --form-error: var(--danger-500);
-    --form-warning: var(--warning-500);
-}
-
-[data-theme="dark"] .form-enhanced {
-    --form-border-color: var(--neutral-600);
-    --form-border-focus: var(--energy-400);
-    --form-bg: var(--neutral-800);
-    --form-text: var(--neutral-100);
-    --form-placeholder: var(--neutral-400);
-}
 
 /* ============================================
    FLOATING LABEL INPUTS

@@ -86,16 +86,7 @@
                         </li>
                     </ul>
                 </div>
-                
-                <!-- Live Stats & Tools -->
-                <div class="col-md-3 mb-4" data-animate="slide-in-right">
-                    <h6 class="footer-heading">Live Information</h6>
-                    
-                    <!-- Live Clock -->
-                    <div class="live-widget mb-3">
-                        <div class="live-time" id="liveClock"><?= date('H:i:s') ?></div>
-                        <div class="live-date"><?= strftime('%A, %d. %B %Y') ?></div>
-                    </div>
+                               
                     
                     <!-- Quick Tools -->
                     <div class="quick-tools">

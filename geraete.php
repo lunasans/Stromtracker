@@ -1,6 +1,6 @@
 <?php
 // geraete.php
-// EINFACHE & SCHÖNE Geräte-Verwaltung (CRUD)
+// ERWEITERTE Geräte-Verwaltung mit Messfunktion
 
 require_once 'config/database.php';
 require_once 'config/session.php';
@@ -113,6 +113,105 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     }
                 }
                 break;
+                
+            case 'add_measurement':
+                // Neue Messung hinzufügen
+                $deviceId = (int)($_POST['device_id'] ?? 0);
+                $consumptionType = $_POST['consumption_type'] ?? 'direct';
+                $measurementDate = $_POST['measurement_date'] ?? date('Y-m-d H:i:s');
+                $notes = trim($_POST['notes'] ?? '');
+                
+                // Gerät prüfen
+                $device = Database::fetchOne(
+                    "SELECT * FROM devices WHERE id = ? AND user_id = ? AND is_active = 1",
+                    [$deviceId, $userId]
+                );
+                
+                if (!$device) {
+                    Flash::error('Gerät nicht gefunden oder nicht aktiv.');
+                    break;
+                }
+                
+                // Datum validieren
+                if (empty($measurementDate)) {
+                    Flash::error('Bitte geben Sie ein gültiges Datum ein.');
+                    break;
+                }
+                
+                // Datum nicht in der Zukunft
+                if (strtotime($measurementDate) > time()) {
+                    Flash::error('Das Datum darf nicht in der Zukunft liegen.');
+                    break;
+                }
+                
+                $consumption = 0;
+                $cost = 0;
+                
+                if ($consumptionType === 'direct') {
+                    // Direkter kWh-Wert
+                    $consumption = (float)($_POST['consumption_kwh'] ?? 0);
+                    
+                    if ($consumption <= 0) {
+                        Flash::error('Bitte geben Sie einen gültigen Verbrauch ein.');
+                        break;
+                    }
+                } else {
+                    // Berechnung aus Zeit und Leistung
+                    $hours = (float)($_POST['usage_hours'] ?? 0);
+                    $wattage = $device['wattage'];
+                    
+                    if ($hours <= 0) {
+                        Flash::error('Bitte geben Sie eine gültige Nutzungsdauer ein.');
+                        break;
+                    }
+                    
+                    $consumption = ($wattage * $hours) / 1000; // Watt-Stunden zu kWh
+                }
+                
+                // Aktueller Strompreis
+                $currentRate = 0.32; // Fallback
+                
+                // Tarif zum Messzeitpunkt holen
+                $tariff = Database::fetchOne(
+                    "SELECT rate_per_kwh FROM tariff_periods 
+                     WHERE user_id = ? AND ? BETWEEN valid_from AND COALESCE(valid_to, CURDATE())
+                     ORDER BY valid_from DESC LIMIT 1",
+                    [$userId, date('Y-m-d', strtotime($measurementDate))]
+                );
+                
+                if (!$tariff) {
+                    // Fallback: Aktuellen oder neuesten Tarif nehmen
+                    $tariff = Database::fetchOne(
+                        "SELECT rate_per_kwh FROM tariff_periods 
+                         WHERE user_id = ? AND is_active = 1 
+                         ORDER BY valid_from DESC LIMIT 1",
+                        [$userId]
+                    );
+                }
+                
+                if ($tariff) {
+                    $currentRate = (float)$tariff['rate_per_kwh'];
+                }
+                
+                $cost = $consumption * $currentRate;
+                
+                // Messung speichern
+                $measurementId = Database::insert('energy_consumption', [
+                    'user_id' => $userId,
+                    'device_id' => $deviceId,
+                    'consumption' => $consumption,
+                    'cost' => $cost,
+                    'timestamp' => $measurementDate,
+                    'notes' => $notes
+                ]);
+                
+                if ($measurementId) {
+                    $dateFormatted = date('d.m.Y H:i', strtotime($measurementDate));
+                    Flash::success("Messung für '{$device['name']}' vom {$dateFormatted} erfolgreich hinzugefügt: " . number_format($consumption, 2) . " kWh (". number_format($cost, 2) . " €)");
+                } else {
+                    Flash::error('Fehler beim Speichern der Messung.');
+                }
+                break;
         }
     }
     
@@ -150,7 +249,8 @@ $devices = Database::fetchAll(
     "SELECT d.*, 
             COALESCE(SUM(ec.consumption), 0) as total_consumption,
             COALESCE(SUM(ec.cost), 0) as total_cost,
-            COUNT(ec.id) as usage_count
+            COUNT(ec.id) as usage_count,
+            MAX(ec.timestamp) as last_measurement
      FROM devices d 
      LEFT JOIN energy_consumption ec ON d.id = ec.device_id 
      WHERE $whereClause
@@ -169,11 +269,32 @@ $categories = Database::fetchAll(
 $activeDevices = array_filter($devices, fn($d) => $d['is_active']);
 $inactiveDevices = array_filter($devices, fn($d) => !$d['is_active']);
 
+// Realistischere Statistiken basierend auf tatsächlichen Messungen
+$totalMeasurements = array_sum(array_map(fn($d) => $d['usage_count'], $devices));
+$totalActualConsumption = array_sum(array_map(fn($d) => $d['total_consumption'], $devices));
+$totalActualCost = array_sum(array_map(fn($d) => $d['total_cost'], $devices));
+
+// Durchschnittlicher Tagesverbrauch (letzte 30 Tage)
+$avgDailyConsumption = 0;
+if ($totalMeasurements > 0) {
+    $recentConsumption = Database::fetchOne(
+        "SELECT COALESCE(SUM(consumption), 0) as total 
+         FROM energy_consumption 
+         WHERE user_id = ? AND timestamp >= DATE_SUB(NOW(), INTERVAL 30 DAY)",
+        [$userId]
+    );
+    $avgDailyConsumption = ($recentConsumption['total'] ?? 0) / 30;
+}
+
 $stats = [
     'total_devices' => count($activeDevices),
     'inactive_devices' => count($inactiveDevices),
-    'total_wattage' => array_sum(array_map(fn($d) => $d['is_active'] ? ($d['wattage'] ?? 0) : 0, $devices)),
-    'categories' => count($categories)
+    'total_measurements' => $totalMeasurements,
+    'total_actual_consumption' => $totalActualConsumption,
+    'total_actual_cost' => $totalActualCost,
+    'avg_daily_consumption' => $avgDailyConsumption,
+    'categories' => count($categories),
+    'max_theoretical_power' => array_sum(array_map(fn($d) => $d['is_active'] ? ($d['wattage'] ?? 0) : 0, $devices))
 ];
 
 include 'includes/header.php';
@@ -223,44 +344,78 @@ include 'includes/navbar.php';
         </div>
         
         <div class="col-md-3 mb-3">
-            <div class="stats-card energy">
+            <div class="stats-card success">
                 <div class="flex-between mb-3">
                     <i class="stats-icon bi bi-lightning-charge"></i>
                     <div class="small">
-                        Max. Verbrauch
+                        Gemessen
                     </div>
                 </div>
-                <h3><?= number_format($stats['total_wattage']) ?> W</h3>
-                <p>Gesamtleistung</p>
+                <h3><?= number_format($stats['total_actual_consumption'], 1) ?></h3>
+                <p>kWh Gesamtverbrauch</p>
             </div>
         </div>
         
         <div class="col-md-3 mb-3">
-            <div class="stats-card success">
+            <div class="stats-card warning">
                 <div class="flex-between mb-3">
-                    <i class="stats-icon bi bi-check-circle"></i>
+                    <i class="stats-icon bi bi-currency-euro"></i>
                     <div class="small">
-                        Online
+                        Gesamtkosten
                     </div>
                 </div>
-                <h3><?= count($categories) ?></h3>
-                <p>Kategorien</p>
+                <h3><?= number_format($stats['total_actual_cost'], 2) ?> €</h3>
+                <p>Alle Geräte</p>
             </div>
         </div>
         
         <div class="col-md-3 mb-3">
-            <div class="stats-card <?= $stats['inactive_devices'] > 0 ? 'warning' : 'success' ?>">
+            <div class="stats-card energy">
                 <div class="flex-between mb-3">
-                    <i class="stats-icon bi bi-<?= $stats['inactive_devices'] > 0 ? 'exclamation-triangle' : 'check-circle' ?>"></i>
+                    <i class="stats-icon bi bi-graph-up"></i>
                     <div class="small">
-                        <?= $showInactive ? 'Angezeigt' : 'Versteckt' ?>
+                        Ø täglich (30d)
                     </div>
                 </div>
-                <h3><?= $stats['inactive_devices'] ?></h3>
-                <p>Inaktive Geräte</p>
+                <h3><?= number_format($stats['avg_daily_consumption'], 1) ?></h3>
+                <p>kWh pro Tag</p>
             </div>
         </div>
     </div>
+    
+    <!-- Zusätzliche Info-Box -->
+    <?php if ($stats['total_measurements'] > 0): ?>
+    <div class="row mb-4">
+        <div class="col-12">
+            <div class="alert alert-info">
+                <div class="row text-center">
+                    <div class="col-md-3">
+                        <strong><?= $stats['total_measurements'] ?></strong><br>
+                        <small>Messungen erfasst</small>
+                    </div>
+                    <div class="col-md-3">
+                        <strong><?= number_format($stats['max_theoretical_power']) ?> W</strong><br>
+                        <small>Max. Anschlussleistung</small>
+                    </div>
+                    <div class="col-md-3">
+                        <strong><?= $stats['total_actual_consumption'] > 0 ? number_format(($stats['total_actual_cost'] / $stats['total_actual_consumption']), 4) : '0.0000' ?> €</strong><br>
+                        <small>Ø Strompreis/kWh</small>
+                    </div>
+                    <div class="col-md-3">
+                        <strong><?= number_format($stats['avg_daily_consumption'] * 365, 0) ?> kWh</strong><br>
+                        <small>Hochrechnung/Jahr</small>
+                    </div>
+                </div>
+                <hr class="my-2">
+                <small class="text-muted">
+                    <i class="bi bi-info-circle me-1"></i>
+                    <strong>Hinweis:</strong> Die Statistiken basieren auf Ihren tatsächlichen Messungen. 
+                    Die Anschlussleistung zeigt die theoretische Maximalleistung wenn alle Geräte gleichzeitig mit voller Leistung liefen.
+                </small>
+            </div>
+        </div>
+    </div>
+    <?php endif; ?>
     
     <!-- Filter & Suche -->
     <div class="row mb-4">
@@ -375,6 +530,7 @@ include 'includes/navbar.php';
                                 <th>Gesamtverbrauch</th>
                                 <th>Gesamtkosten</th>
                                 <th>Messungen</th>
+                                <th>Letzte Messung</th>
                                 <th>Aktionen</th>
                             </tr>
                         </thead>
@@ -427,6 +583,16 @@ include 'includes/navbar.php';
                                         <span class="badge bg-info"><?= $device['usage_count'] ?></span>
                                     </td>
                                     <td>
+                                        <?php if (!empty($device['last_measurement'])): ?>
+                                            <div class="small">
+                                                <strong><?= date('d.m.Y', strtotime($device['last_measurement'])) ?></strong><br>
+                                                <span class="text-muted"><?= date('H:i', strtotime($device['last_measurement'])) ?> Uhr</span>
+                                            </div>
+                                        <?php else: ?>
+                                            <span class="text-muted">Keine Messung</span>
+                                        <?php endif; ?>
+                                    </td>
+                                    <td>
                                         <div class="btn-group btn-group-sm">
                                             <button class="btn btn-outline-primary" 
                                                     onclick="editDevice(<?= htmlspecialchars(json_encode($device)) ?>)" 
@@ -435,6 +601,12 @@ include 'includes/navbar.php';
                                             </button>
                                             
                                             <?php if ($device['is_active']): ?>
+                                                <button class="btn btn-outline-success" 
+                                                        onclick="addMeasurement(<?= $device['id'] ?>, '<?= htmlspecialchars($device['name']) ?>', <?= $device['wattage'] ?>)" 
+                                                        title="Messung hinzufügen">
+                                                    <i class="bi bi-plus-circle"></i>
+                                                </button>
+                                                
                                                 <button class="btn btn-outline-warning" 
                                                         onclick="deleteDevice(<?= $device['id'] ?>, '<?= htmlspecialchars($device['name']) ?>')" 
                                                         title="Deaktivieren">
@@ -562,6 +734,99 @@ include 'includes/navbar.php';
     </div>
 </div>
 
+<!-- Add Measurement Modal -->
+<div class="modal fade" id="addMeasurementModal" tabindex="-1">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <form method="POST">
+                <div class="modal-header">
+                    <h5 class="modal-title">
+                        <i class="bi bi-plus-circle text-success"></i>
+                        Messung hinzufügen
+                    </h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+                </div>
+                <div class="modal-body">
+                    <input type="hidden" name="csrf_token" value="<?= $csrfToken ?>">
+                    <input type="hidden" name="action" value="add_measurement">
+                    <input type="hidden" name="device_id" id="measurement_device_id">
+                    
+                    <div class="alert alert-info">
+                        <strong id="measurement_device_name">Gerät</strong><br>
+                        <small>Leistung: <span id="measurement_device_wattage">0</span> Watt</small>
+                    </div>
+                    
+                    <div class="mb-3">
+                        <label class="form-label">Datum und Zeit der Messung</label>
+                        <div class="row">
+                            <div class="col-md-8">
+                                <input type="datetime-local" class="form-control" name="measurement_date" 
+                                       id="measurement_date" value="<?= date('Y-m-d\TH:i') ?>" required>
+                            </div>
+                            <div class="col-md-4">
+                                <select class="form-select" onchange="setQuickDate(this.value)">
+                                    <option value="">Schnellauswahl</option>
+                                    <option value="now">Jetzt</option>
+                                    <option value="today_morning">Heute früh</option>
+                                    <option value="yesterday">Gestern</option>
+                                    <option value="last_week">Letzte Woche</option>
+                                    <option value="last_month">Letzter Monat</option>
+                                </select>
+                            </div>
+                        </div>
+                        <div class="form-text">
+                            Wann wurde der Verbrauch gemessen/verursacht? 
+                            <br><small class="text-muted">Beispiele: Waschgang gestern, Gaming letzte Woche, Verbrauch vom letzten Monat nachtragen</small>
+                        </div>
+                    </div>
+                    
+                    <div class="mb-3">
+                        <label class="form-label">Verbrauch erfassen</label>
+                        <div class="form-check">
+                            <input class="form-check-input" type="radio" name="consumption_type" id="direct_kwh" value="direct" checked onchange="toggleMeasurementType()">
+                            <label class="form-check-label" for="direct_kwh">
+                                Direkter kWh-Wert
+                            </label>
+                        </div>
+                        <div class="form-check">
+                            <input class="form-check-input" type="radio" name="consumption_type" id="calculated" value="calculated" onchange="toggleMeasurementType()">
+                            <label class="form-check-label" for="calculated">
+                                Aus Nutzungsdauer berechnen
+                            </label>
+                        </div>
+                    </div>
+                    
+                    <div id="direct_input" class="mb-3">
+                        <label class="form-label">Verbrauch (kWh)</label>
+                        <input type="number" class="form-control" name="consumption_kwh" 
+                               step="0.001" min="0" placeholder="z.B. 2.5">
+                        <div class="form-text">Gemessener oder abgelesener Verbrauch</div>
+                    </div>
+                    
+                    <div id="calculated_input" class="mb-3" style="display: none;">
+                        <label class="form-label">Nutzungsdauer (Stunden)</label>
+                        <input type="number" class="form-control" name="usage_hours" 
+                               step="0.1" min="0" placeholder="z.B. 3.5">
+                        <div class="form-text">Verbrauch wird automatisch berechnet: <span id="calculated_result">-</span></div>
+                    </div>
+                    
+                    <div class="mb-3">
+                        <label class="form-label">Notizen <small class="text-muted">(optional)</small></label>
+                        <textarea class="form-control" name="notes" rows="2" 
+                                  placeholder="z.B. Waschgang, Gaming-Session..."></textarea>
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Abbrechen</button>
+                    <button type="submit" class="btn btn-success">
+                        <i class="bi bi-check-circle me-1"></i>Messung speichern
+                    </button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+
 <!-- Hidden Forms für Actions -->
 <form method="POST" id="deleteForm" style="display: none;">
     <input type="hidden" name="csrf_token" value="<?= $csrfToken ?>">
@@ -606,24 +871,195 @@ function activateDevice(deviceId, deviceName) {
     }
 }
 
+// Messung hinzufügen
+function addMeasurement(deviceId, deviceName, wattage) {
+    // Elemente prüfen bevor wir sie verwenden
+    const deviceIdInput = document.getElementById('measurement_device_id');
+    const deviceNameSpan = document.getElementById('measurement_device_name');
+    const deviceWattageSpan = document.getElementById('measurement_device_wattage');
+    const dateInput = document.getElementById('measurement_date');
+    const directRadio = document.getElementById('direct_kwh');
+    
+    if (!deviceIdInput || !deviceNameSpan || !deviceWattageSpan || !dateInput || !directRadio) {
+        console.error('Measurement modal elements not found');
+        alert('Fehler beim Öffnen des Messung-Dialogs. Bitte laden Sie die Seite neu.');
+        return;
+    }
+    
+    deviceIdInput.value = deviceId;
+    deviceNameSpan.textContent = deviceName;
+    deviceWattageSpan.textContent = wattage;
+    
+    // Reset form
+    const form = document.querySelector('#addMeasurementModal form');
+    if (form) {
+        form.reset();
+        deviceIdInput.value = deviceId; // Nach reset wieder setzen
+    }
+    
+    directRadio.checked = true;
+    
+    // Datum auf jetzt setzen
+    const now = new Date();
+    const year = now.getFullYear();
+    const month = String(now.getMonth() + 1).padStart(2, '0');
+    const day = String(now.getDate()).padStart(2, '0');
+    const hours = String(now.getHours()).padStart(2, '0');
+    const minutes = String(now.getMinutes()).padStart(2, '0');
+    dateInput.value = `${year}-${month}-${day}T${hours}:${minutes}`;
+    
+    toggleMeasurementType();
+    
+    const modal = new bootstrap.Modal(document.getElementById('addMeasurementModal'));
+    modal.show();
+}
+
+// Messungs-Typ umschalten
+function toggleMeasurementType() {
+    const directRadio = document.getElementById('direct_kwh');
+    const directInput = document.getElementById('direct_input');
+    const calculatedInput = document.getElementById('calculated_input');
+    const consumptionInput = document.querySelector('input[name="consumption_kwh"]');
+    const hoursInput = document.querySelector('input[name="usage_hours"]');
+    
+    if (!directRadio || !directInput || !calculatedInput || !consumptionInput || !hoursInput) {
+        console.error('Toggle elements not found');
+        return;
+    }
+    
+    const isDirect = directRadio.checked;
+    
+    if (isDirect) {
+        directInput.style.display = 'block';
+        calculatedInput.style.display = 'none';
+        consumptionInput.required = true;
+        hoursInput.required = false;
+    } else {
+        directInput.style.display = 'none';
+        calculatedInput.style.display = 'block';
+        consumptionInput.required = false;
+        hoursInput.required = true;
+    }
+    
+    calculateConsumption();
+}
+
+// Verbrauch berechnen
+function calculateConsumption() {
+    const hoursInput = document.querySelector('input[name="usage_hours"]');
+    const resultSpan = document.getElementById('calculated_result');
+    const wattageSpan = document.getElementById('measurement_device_wattage');
+    
+    if (!hoursInput || !resultSpan || !wattageSpan) {
+        console.error('Calculation elements not found');
+        return;
+    }
+    
+    const wattage = parseInt(wattageSpan.textContent);
+    
+    if (hoursInput.value && wattage && !isNaN(wattage)) {
+        const hours = parseFloat(hoursInput.value);
+        const kwh = (wattage * hours) / 1000;
+        resultSpan.textContent = kwh.toFixed(3) + ' kWh';
+    } else {
+        resultSpan.textContent = '-';
+    }
+}
+
+// Schnell-Datum setzen
+function setQuickDate(period) {
+    const dateInput = document.getElementById('measurement_date');
+    if (!dateInput || !period) return;
+    
+    const now = new Date();
+    let targetDate = new Date();
+    
+    switch (period) {
+        case 'now':
+            targetDate = now;
+            break;
+        case 'today_morning':
+            targetDate.setHours(8, 0, 0, 0);
+            break;
+        case 'yesterday':
+            targetDate.setDate(now.getDate() - 1);
+            targetDate.setHours(12, 0, 0, 0);
+            break;
+        case 'last_week':
+            targetDate.setDate(now.getDate() - 7);
+            targetDate.setHours(12, 0, 0, 0);
+            break;
+        case 'last_month':
+            targetDate.setMonth(now.getMonth() - 1);
+            targetDate.setDate(1);
+            targetDate.setHours(12, 0, 0, 0);
+            break;
+        default:
+            return;
+    }
+    
+    // Format für datetime-local input
+    const year = targetDate.getFullYear();
+    const month = String(targetDate.getMonth() + 1).padStart(2, '0');
+    const day = String(targetDate.getDate()).padStart(2, '0');
+    const hours = String(targetDate.getHours()).padStart(2, '0');
+    const minutes = String(targetDate.getMinutes()).padStart(2, '0');
+    
+    dateInput.value = `${year}-${month}-${day}T${hours}:${minutes}`;
+}
+
 // Auto-focus auf erstes Feld in Modals
 document.addEventListener('DOMContentLoaded', function() {
     // Add Modal
     const addModal = document.getElementById('addDeviceModal');
-    addModal.addEventListener('shown.bs.modal', function() {
-        document.querySelector('#addDeviceModal input[name="name"]').focus();
-    });
+    if (addModal) {
+        addModal.addEventListener('shown.bs.modal', function() {
+            const nameInput = document.querySelector('#addDeviceModal input[name="name"]');
+            if (nameInput) nameInput.focus();
+        });
+    }
     
     // Edit Modal
     const editModal = document.getElementById('editDeviceModal');
-    editModal.addEventListener('shown.bs.modal', function() {
-        document.getElementById('edit_name').focus();
-    });
+    if (editModal) {
+        editModal.addEventListener('shown.bs.modal', function() {
+            const editNameInput = document.getElementById('edit_name');
+            if (editNameInput) editNameInput.focus();
+        });
+    }
+    
+    // Measurement Modal
+    const measurementModal = document.getElementById('addMeasurementModal');
+    if (measurementModal) {
+        measurementModal.addEventListener('shown.bs.modal', function() {
+            const consumptionInput = document.querySelector('#addMeasurementModal input[name="consumption_kwh"]');
+            if (consumptionInput) consumptionInput.focus();
+        });
+    }
+    
+    // Live-Berechnung für Nutzungsdauer
+    const hoursInput = document.querySelector('input[name="usage_hours"]');
+    if (hoursInput) {
+        hoursInput.addEventListener('input', calculateConsumption);
+    }
     
     // Tooltips initialisieren
     const tooltipTriggerList = [].slice.call(document.querySelectorAll('[title]'));
-    const tooltipList = tooltipTriggerList.map(function (tooltipTriggerEl) {
-        return new bootstrap.Tooltip(tooltipTriggerEl);
+    if (tooltipTriggerList.length > 0) {
+        const tooltipList = tooltipTriggerList.map(function (tooltipTriggerEl) {
+            return new bootstrap.Tooltip(tooltipTriggerEl);
+        });
+    }
+    
+    // Debug: Prüfen ob alle Modal-Elemente existieren
+    console.log('Modal elements check:', {
+        addModal: !!document.getElementById('addDeviceModal'),
+        editModal: !!document.getElementById('editDeviceModal'),
+        measurementModal: !!document.getElementById('addMeasurementModal'),
+        deviceIdInput: !!document.getElementById('measurement_device_id'),
+        deviceNameSpan: !!document.getElementById('measurement_device_name'),
+        deviceWattageSpan: !!document.getElementById('measurement_device_wattage'),
+        dateInput: !!document.getElementById('measurement_date')
     });
 });
 </script>

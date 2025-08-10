@@ -1,5 +1,5 @@
 <?php
-// includes/navbar.php - Erweitert mit Profilbild-Support
+// includes/navbar.php - Erweitert mit Profilbild-Support & Dark Mode Fix
 // Navigation für eingeloggte User
 
 require_once __DIR__ . '/../config/database.php';
@@ -215,11 +215,11 @@ if (!function_exists('renderUserAvatar')) {
 </nav>
 
 <!-- Breadcrumb (optional) -->
-<nav aria-label="breadcrumb" class="bg-light py-2">
+<nav aria-label="breadcrumb" class="breadcrumb-nav py-2">
     <div class="container-fluid">
         <ol class="breadcrumb mb-0">
             <li class="breadcrumb-item">
-                <a href="dashboard.php" class="text-decoration-none">
+                <a href="dashboard.php" class="text-decoration-none breadcrumb-link">
                     <i class="bi bi-house-door"></i> Home
                 </a>
             </li>
@@ -301,6 +301,70 @@ if (!function_exists('renderUserAvatar')) {
     color: var(--energy) !important;
 }
 
+/* Breadcrumb Styling */
+.breadcrumb-nav {
+    background: var(--gray-50);
+    border-bottom: 1px solid var(--gray-200);
+    transition: all 0.2s ease;
+}
+
+.breadcrumb {
+    background: none;
+    padding: 0;
+    margin: 0;
+}
+
+.breadcrumb-link {
+    color: var(--gray-600);
+    transition: color 0.2s ease;
+}
+
+.breadcrumb-link:hover {
+    color: var(--energy);
+}
+
+.breadcrumb-item.active {
+    color: var(--gray-700);
+    font-weight: 500;
+}
+
+.breadcrumb-item + .breadcrumb-item::before {
+    color: var(--gray-400);
+}
+
+/* Dark Theme Breadcrumb */
+[data-theme="dark"] .breadcrumb-nav {
+    background: var(--gray-800);
+    border-color: var(--gray-700);
+}
+
+[data-theme="dark"] .breadcrumb-link {
+    color: var(--gray-400);
+}
+
+[data-theme="dark"] .breadcrumb-link:hover {
+    color: var(--energy);
+}
+
+[data-theme="dark"] .breadcrumb-item.active {
+    color: var(--gray-200);
+}
+
+[data-theme="dark"] .breadcrumb-item + .breadcrumb-item::before {
+    color: var(--gray-500);
+}
+
+[data-theme="dark"] .dropdown-header {
+    background: var(--gray-700);
+    border-color: var(--gray-600);
+    color: var(--gray-300);
+}
+
+[data-theme="dark"] .dropdown-item:hover {
+    background: var(--gray-700);
+    color: white;
+}
+
 /* Mobile Optimizations */
 @media (max-width: 768px) {
     .dropdown-menu {
@@ -325,6 +389,14 @@ if (!function_exists('renderUserAvatar')) {
         background: var(--gray-700);
         border-color: var(--gray-600);
         color: var(--gray-300);
+    }
+    
+    .breadcrumb-nav {
+        padding: 0.5rem 0;
+    }
+    
+    .breadcrumb {
+        font-size: 0.875rem;
     }
 }
 

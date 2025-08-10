@@ -1,6 +1,6 @@
 <?php
 // dashboard-enhanced.php
-// Enhanced Dashboard mit verbessertem Design System (Beispiel)
+// Enhanced Dashboard mit verbessertem Design System
 
 require_once 'config/database.php';
 require_once 'config/session.php';
@@ -34,7 +34,7 @@ $stats = [
 $trendData = [420, 435, 445, 450, 465, 450, 445];
 $costTrend = [134.40, 139.20, 142.40, 144.16, 148.80, 144.16, 142.40];
 
-include 'includes/header-modern.php';
+include 'includes/header.php';
 include 'includes/navbar.php';
 ?>
 
@@ -44,7 +44,7 @@ include 'includes/navbar.php';
     <!-- Enhanced Welcome Header -->
     <div class="row mb-4" data-animate="slide-in-up">
         <div class="col-12">
-            <div class="glass-light"
+            <div class="glass-card"
                 style="border-radius: var(--radius-3xl); padding: var(--space-8); position: relative; overflow: hidden;">
                 <!-- Background Pattern -->
                 <div
@@ -91,7 +91,7 @@ include 'includes/navbar.php';
 
         <!-- Aktueller Monat - Verbrauch -->
         <div class="col-md-3 mb-3">
-            <div class="stats-card-enhanced success" data-click-feedback>
+            <div class="stats-card-modern success" data-click-feedback>
                 <div class="d-flex justify-content-between align-items-start mb-3">
                     <div class="stats-icon" style="color: var(--success-600); opacity: 0.8;">
                         <i class="bi bi-lightning-charge"></i>
@@ -116,7 +116,7 @@ include 'includes/navbar.php';
 
         <!-- Aktueller Monat - Kosten -->
         <div class="col-md-3 mb-3">
-            <div class="stats-card-enhanced warning" data-click-feedback>
+            <div class="stats-card-modern warning" data-click-feedback>
                 <div class="d-flex justify-content-between align-items-start mb-3">
                     <div class="stats-icon" style="color: var(--warning-600); opacity: 0.8;">
                         <i class="bi bi-cash-coin"></i>
@@ -141,7 +141,7 @@ include 'includes/navbar.php';
 
         <!-- Jahr - Verbrauch -->
         <div class="col-md-3 mb-3">
-            <div class="stats-card-enhanced info" data-click-feedback>
+            <div class="stats-card-modern info" data-click-feedback>
                 <div class="d-flex justify-content-between align-items-start mb-3">
                     <div class="stats-icon" style="color: var(--info-600); opacity: 0.8;">
                         <i class="bi bi-calendar-year"></i>
@@ -178,7 +178,7 @@ include 'includes/navbar.php';
 
         <!-- Geräte -->
         <div class="col-md-3 mb-3">
-            <div class="stats-card-enhanced" data-click-feedback>
+            <div class="stats-card-modern" data-click-feedback>
                 <div class="d-flex justify-content-between align-items-start mb-3">
                     <div class="stats-icon" style="color: var(--energy-600); opacity: 0.8;">
                         <i class="bi bi-cpu"></i>
@@ -208,7 +208,7 @@ include 'includes/navbar.php';
     <!-- Enhanced Quick Actions -->
     <div class="row mb-4" data-animate="fade-in">
         <div class="col-12">
-            <div class="glass-light" style="border-radius: var(--radius-2xl); padding: var(--space-6);">
+            <div class="glass-card" style="border-radius: var(--radius-2xl); padding: var(--space-6);">
                 <h5 class="mb-4 d-flex align-items-center gap-2">
                     <div class="energy-indicator"></div>
                     Schnellaktionen
@@ -216,7 +216,7 @@ include 'includes/navbar.php';
 
                 <div class="row">
                     <div class="col-md-3 mb-3">
-                        <a href="zaehlerstand.php" class="btn-enhanced success w-100"
+                        <a href="zaehlerstand.php" class="btn btn-success success w-100"
                             style="text-decoration: none; padding: var(--space-4);">
                             <i class="bi bi-plus-circle"></i>
                             <div>
@@ -227,7 +227,7 @@ include 'includes/navbar.php';
                     </div>
 
                     <div class="col-md-3 mb-3">
-                        <a href="geraete.php" class="btn-enhanced info w-100"
+                        <a href="geraete.php" class="btn btn-success info w-100"
                             style="text-decoration: none; padding: var(--space-4);">
                             <i class="bi bi-cpu"></i>
                             <div>
@@ -238,7 +238,7 @@ include 'includes/navbar.php';
                     </div>
 
                     <div class="col-md-3 mb-3">
-                        <a href="auswertung.php" class="btn-enhanced primary w-100"
+                        <a href="auswertung.php" class="tn btn-success primary w-100"
                             style="text-decoration: none; padding: var(--space-4);">
                             <i class="bi bi-bar-chart"></i>
                             <div>
@@ -249,7 +249,7 @@ include 'includes/navbar.php';
                     </div>
 
                     <div class="col-md-3 mb-3">
-                        <button class="btn-enhanced w-100" style="padding: var(--space-4);" data-bs-toggle="modal"
+                        <button class="tn btn-success w-100" style="padding: var(--space-4);" data-bs-toggle="modal"
                             data-bs-target="#exportModal">
                             <i class="bi bi-download"></i>
                             <div>
@@ -268,7 +268,7 @@ include 'includes/navbar.php';
 
         <!-- Hauptchart -->
         <div class="col-md-8 mb-4" data-animate="slide-in-left">
-            <div class="glass-light" style="border-radius: var(--radius-2xl); padding: var(--space-6); height: 400px;">
+            <div class="glass-card" style="border-radius: var(--radius-2xl); padding: var(--space-6); height: 400px;">
                 <div class="d-flex justify-content-between align-items-center mb-4">
                     <h5 class="mb-0 d-flex align-items-center gap-2">
                         <i class="bi bi-graph-up text-success"></i>
@@ -307,7 +307,7 @@ include 'includes/navbar.php';
 
 
             <!-- Enhanced Tips -->
-            <div class="glass-light" style="border-radius: var(--radius-2xl); padding: var(--space-6);"
+            <div class="glass-card" style="border-radius: var(--radius-2xl); padding: var(--space-6);"
                 data-animate="slide-in-right">
                 <h6 class="mb-3 d-flex align-items-center gap-2">
                     <i class="bi bi-lightbulb text-warning"></i>
@@ -535,4 +535,4 @@ include 'includes/navbar.php';
     }
 </script>
 
-<?php include 'includes/footer-modern.php'; ?>
+<?php include 'includes/footer.php'; ?>

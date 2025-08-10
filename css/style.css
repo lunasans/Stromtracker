@@ -1,0 +1,344 @@
+/* css/simple-design.css */
+/* EINFACHES & SCHÖNES Design-System für Stromtracker */
+
+/* ============================================
+   FARBSYSTEM - Einfach und konsistent
+   ============================================ */
+
+:root {
+  /* Hauptfarben */
+  --primary: #3b82f6;      /* Schönes Blau */
+  --energy: #f59e0b;       /* Orange für Energie */
+  --success: #10b981;      /* Grün */
+  --warning: #f59e0b;      /* Orange */
+  --danger: #ef4444;       /* Rot */
+  
+  /* Grautöne */
+  --white: #ffffff;
+  --gray-50: #f9fafb;
+  --gray-100: #f3f4f6;
+  --gray-200: #e5e7eb;
+  --gray-300: #d1d5db;
+  --gray-400: #9ca3af;
+  --gray-500: #6b7280;
+  --gray-600: #4b5563;
+  --gray-700: #374151;
+  --gray-800: #1f2937;
+  --gray-900: #111827;
+  
+  /* Schatten */
+  --shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+  --shadow-lg: 0 10px 25px rgba(0, 0, 0, 0.15);
+  
+  /* Abstände */
+  --space-2: 0.5rem;
+  --space-3: 0.75rem;
+  --space-4: 1rem;
+  --space-5: 1.25rem;
+  --space-6: 1.5rem;
+  --space-8: 2rem;
+}
+
+/* ============================================
+   BASIS STYLING
+   ============================================ */
+
+body {
+  font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+  background-color: var(--gray-50);
+  color: var(--gray-700);
+  line-height: 1.6;
+}
+
+/* ============================================
+   KARTEN - Einfach und schön
+   ============================================ */
+
+.card {
+  background: var(--white);
+  border: none;
+  border-radius: 12px;
+  box-shadow: var(--shadow);
+  transition: all 0.2s ease;
+}
+
+.card:hover {
+  transform: translateY(-2px);
+  box-shadow: var(--shadow-lg);
+}
+
+/* Stats Karten mit Farben */
+.stats-card {
+  padding: var(--space-6);
+  color: white;
+  border-radius: 16px;
+  position: relative;
+  overflow: hidden;
+}
+
+.stats-card.primary { background: linear-gradient(135deg, var(--primary), #2563eb); }
+.stats-card.energy { background: linear-gradient(135deg, var(--energy), #d97706); }
+.stats-card.success { background: linear-gradient(135deg, var(--success), #059669); }
+.stats-card.warning { background: linear-gradient(135deg, var(--warning), #d97706); }
+.stats-card.danger { background: linear-gradient(135deg, var(--danger), #dc2626); }
+
+.stats-card h3 {
+  font-size: 2.5rem;
+  font-weight: 700;
+  margin-bottom: var(--space-2);
+}
+
+.stats-card p {
+  font-size: 1rem;
+  opacity: 0.9;
+  margin-bottom: 0;
+}
+
+.stats-icon {
+  position: absolute;
+  top: var(--space-4);
+  right: var(--space-4);
+  font-size: 2.5rem;
+  opacity: 0.3;
+}
+
+/* ============================================
+   BUTTONS - Einfach und konsistent
+   ============================================ */
+
+.btn-primary {
+  background: var(--primary);
+  border-color: var(--primary);
+  font-weight: 500;
+}
+
+.btn-primary:hover {
+  background: #2563eb;
+  border-color: #2563eb;
+}
+
+.btn-energy {
+  background: var(--energy);
+  border-color: var(--energy);
+  color: white;
+  font-weight: 500;
+}
+
+.btn-energy:hover {
+  background: #d97706;
+  border-color: #d97706;
+  color: white;
+}
+
+.btn-success {
+  background: var(--success);
+  border-color: var(--success);
+}
+
+.btn-success:hover {
+  background: #059669;
+  border-color: #059669;
+}
+
+/* ============================================
+   NAVIGATION
+   ============================================ */
+
+.navbar-brand {
+  font-weight: 700;
+  color: var(--energy) !important;
+  font-size: 1.25rem;
+}
+
+.navbar {
+  background: var(--white) !important;
+  box-shadow: var(--shadow);
+  border-bottom: 1px solid var(--gray-200);
+}
+
+.nav-link {
+  color: var(--gray-600) !important;
+  font-weight: 500;
+}
+
+.nav-link:hover,
+.nav-link.active {
+  color: var(--energy) !important;
+}
+
+/* ============================================
+   ENERGY INDICATOR - Einfach aber schön
+   ============================================ */
+
+.energy-indicator {
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  background-color: var(--energy);
+  animation: pulse 2s infinite;
+  display: inline-block;
+  margin-right: var(--space-2);
+}
+
+@keyframes pulse {
+  0% { 
+    box-shadow: 0 0 0 0 rgba(245, 158, 11, 0.7); 
+  }
+  70% { 
+    box-shadow: 0 0 0 10px rgba(245, 158, 11, 0); 
+  }
+  100% { 
+    box-shadow: 0 0 0 0 rgba(245, 158, 11, 0); 
+  }
+}
+
+/* ============================================
+   GLASMORPHISM - Dezent und schön
+   ============================================ */
+
+.glass {
+  background: rgba(255, 255, 255, 0.8);
+  backdrop-filter: blur(10px);
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  border-radius: 16px;
+}
+
+/* ============================================
+   UTILITIES - Nur die wichtigsten
+   ============================================ */
+
+.text-energy { color: var(--energy); }
+.text-primary { color: var(--primary); }
+.text-success { color: var(--success); }
+.text-warning { color: var(--warning); }
+.text-danger { color: var(--danger); }
+
+.bg-energy { background-color: var(--energy); }
+
+.rounded-lg { border-radius: 12px; }
+.rounded-xl { border-radius: 16px; }
+
+.shadow { box-shadow: var(--shadow); }
+.shadow-lg { box-shadow: var(--shadow-lg); }
+
+/* Flexbox Helpers */
+.flex-center {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.flex-between {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+/* ============================================
+   DARK THEME - Optional
+   ============================================ */
+
+[data-theme="dark"] {
+  --white: #1f2937;
+  --gray-50: #111827;
+  --gray-100: #1f2937;
+  --gray-200: #374151;
+  --gray-300: #4b5563;
+  --gray-600: #d1d5db;
+  --gray-700: #f9fafb;
+}
+
+[data-theme="dark"] body {
+  background-color: var(--gray-50);
+  color: var(--gray-700);
+}
+
+[data-theme="dark"] .navbar {
+  background: var(--white) !important;
+  border-bottom: 1px solid var(--gray-200);
+}
+
+[data-theme="dark"] .glass {
+  background: rgba(31, 41, 55, 0.8);
+  border: 1px solid rgba(75, 85, 99, 0.3);
+}
+
+/* ============================================
+   RESPONSIVE - Mobile First
+   ============================================ */
+
+@media (max-width: 768px) {
+  .stats-card {
+    padding: var(--space-4);
+    margin-bottom: var(--space-4);
+  }
+  
+  .stats-card h3 {
+    font-size: 2rem;
+  }
+  
+  .container-fluid {
+    padding-left: var(--space-4);
+    padding-right: var(--space-4);
+  }
+}
+
+/* ============================================
+   SCHNELLE ANIMATIONS - Subtil
+   ============================================ */
+
+* {
+  transition: color 0.15s ease, background-color 0.15s ease, transform 0.15s ease;
+}
+
+.btn {
+  transition: all 0.2s ease;
+}
+
+.btn:hover {
+  transform: translateY(-1px);
+}
+
+/* ============================================
+   FORMS - Sauber und einfach
+   ============================================ */
+
+.form-control {
+  border: 2px solid var(--gray-200);
+  border-radius: 8px;
+  padding: var(--space-3);
+}
+
+.form-control:focus {
+  border-color: var(--energy);
+  box-shadow: 0 0 0 3px rgba(245, 158, 11, 0.1);
+}
+
+.form-label {
+  font-weight: 500;
+  color: var(--gray-700);
+  margin-bottom: var(--space-2);
+}
+
+/* ============================================
+   FOOTER
+   ============================================ */
+
+footer {
+  background: var(--gray-800) !important;
+  color: var(--gray-300);
+  margin-top: var(--space-8);
+}
+
+footer h6 {
+  color: var(--white);
+}
+
+footer a {
+  color: var(--gray-400);
+  text-decoration: none;
+}
+
+footer a:hover {
+  color: var(--energy);
+}

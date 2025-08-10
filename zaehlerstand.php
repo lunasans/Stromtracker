@@ -1,6 +1,6 @@
 <?php
 // zaehlerstand.php
-// EINFACHE & SCHÖNE Zählerstand-Verwaltung
+// EINFACHE & SCHÖNE Zählerstand-Verwaltung (KORRIGIERT)
 
 require_once 'config/database.php';
 require_once 'config/session.php';
@@ -15,19 +15,36 @@ $userId = Auth::getUserId();
 // CSRF-Token generieren
 $csrfToken = Auth::generateCSRFToken();
 
-// Aktueller Tarif für Berechnungen
-$currentTariff = Database::fetchOne(
-    "SELECT * FROM tariff_periods 
-     WHERE user_id = ? AND is_active = 1 
-     ORDER BY valid_from DESC LIMIT 1",
-    [$userId]
-);
+// Aktueller Tarif für Berechnungen (mit robuster Fehlerbehandlung)
+$currentTariff = null;
+$currentRate = 0.32; // Fallback
+$monthlyPayment = 0;
+$basicFee = 0;
 
-$currentRate = $currentTariff['rate_per_kwh'] ?? 0.32;
-$monthlyPayment = $currentTariff['monthly_payment'] ?? 0;
-$basicFee = $currentTariff['basic_fee'] ?? 0;
+try {
+    // Prüfen ob tariff_periods Tabelle existiert
+    $tableExists = Database::fetchOne("SHOW TABLES LIKE 'tariff_periods'");
+    
+    if ($tableExists) {
+        $currentTariff = Database::fetchOne(
+            "SELECT * FROM tariff_periods 
+             WHERE user_id = ? AND is_active = 1 
+             ORDER BY valid_from DESC LIMIT 1",
+            [$userId]
+        );
+        
+        if ($currentTariff) {
+            $currentRate = (float)($currentTariff['rate_per_kwh'] ?? 0.32);
+            $monthlyPayment = (float)($currentTariff['monthly_payment'] ?? 0);
+            $basicFee = (float)($currentTariff['basic_fee'] ?? 0);
+        }
+    }
+} catch (Exception $e) {
+    // Fallback bei Datenbankfehlern
+    error_log("Tariff query error: " . $e->getMessage());
+}
 
-// Zählerstand-Verarbeitung
+// Zählerstand-Verarbeitung mit robuster Fehlerbehandlung
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     
     // CSRF-Token prüfen
@@ -39,138 +56,115 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         
         switch ($action) {
             case 'add':
-                // Neuen Zählerstand hinzufügen
-                $readingDate = $_POST['reading_date'] ?? '';
-                $meterValue = (float)($_POST['meter_value'] ?? 0);
-                $notes = trim($_POST['notes'] ?? '');
-                
-                if (empty($readingDate) || $meterValue <= 0) {
-                    Flash::error('Bitte geben Sie ein gültiges Datum und einen Zählerstand ein.');
-                } else {
-                    // Prüfen ob bereits Eintrag für diesen Monat existiert
-                    $existingReading = Database::fetchOne(
-                        "SELECT id FROM meter_readings WHERE user_id = ? AND reading_date = ?",
-                        [$userId, $readingDate]
-                    );
+                try {
+                    // Neuen Zählerstand hinzufügen
+                    $readingDate = $_POST['reading_date'] ?? '';
+                    $meterValue = (float)($_POST['meter_value'] ?? 0);
+                    $notes = trim($_POST['notes'] ?? '');
                     
-                    if ($existingReading) {
-                        Flash::error('Für diesen Monat existiert bereits ein Zählerstand.');
+                    if (empty($readingDate) || $meterValue <= 0) {
+                        Flash::error('Bitte geben Sie ein gültiges Datum und einen Zählerstand ein.');
                     } else {
-                        // Letzten Zählerstand holen für Verbrauchsberechnung
-                        $lastReading = Database::fetchOne(
-                            "SELECT meter_value FROM meter_readings 
-                             WHERE user_id = ? AND reading_date < ? 
-                             ORDER BY reading_date DESC LIMIT 1",
+                        // Prüfen ob bereits Eintrag für diesen Monat existiert
+                        $existingReading = Database::fetchOne(
+                            "SELECT id FROM meter_readings WHERE user_id = ? AND reading_date = ?",
                             [$userId, $readingDate]
                         );
                         
-                        $consumption = null;
-                        $cost = null;
-                        
-                        if ($lastReading) {
-                            $consumption = $meterValue - $lastReading['meter_value'];
-                            $energyCost = $consumption * $currentRate;
-                            $totalBill = $energyCost + $basicFee;
-                            $paymentDifference = $totalBill - $monthlyPayment;
-                            
-                            // Negative Werte abfangen
-                            if ($consumption < 0) {
-                                Flash::error('Der neue Zählerstand ist kleiner als der vorherige. Bitte prüfen Sie die Eingabe.');
-                                break;
-                            }
+                        if ($existingReading) {
+                            Flash::error('Für diesen Monat existiert bereits ein Zählerstand.');
                         } else {
+                            // Letzten Zählerstand holen für Verbrauchsberechnung
+                            $lastReading = Database::fetchOne(
+                                "SELECT meter_value FROM meter_readings 
+                                 WHERE user_id = ? AND reading_date < ? 
+                                 ORDER BY reading_date DESC LIMIT 1",
+                                [$userId, $readingDate]
+                            );
+                            
                             $consumption = null;
                             $energyCost = null;
                             $totalBill = null;
                             $paymentDifference = null;
-                        }
-                        
-                        $readingId = Database::insert('meter_readings', [
-                            'user_id' => $userId,
-                            'reading_date' => $readingDate,
-                            'meter_value' => $meterValue,
-                            'consumption' => $consumption,
-                            'cost' => $energyCost,
-                            'rate_per_kwh' => $currentRate,
-                            'monthly_payment' => $monthlyPayment,
-                            'basic_fee' => $basicFee,
-                            'total_bill' => $totalBill,
-                            'payment_difference' => $paymentDifference,
-                            'notes' => $notes
-                        ]);
-                        
-                        if ($readingId) {
-                            $message = "Zählerstand erfolgreich gespeichert.";
-                            if ($consumption !== null) {
-                                $message .= " Verbrauch: " . number_format($consumption, 1) . " kWh, Stromkosten: " . number_format($energyCost, 2) . " €";
-                                if ($totalBill !== null) {
-                                    $message .= ", Gesamtrechnung: " . number_format($totalBill, 2) . " €";
-                                    if ($paymentDifference !== null) {
-                                        $diff = $paymentDifference >= 0 ? "Nachzahlung" : "Guthaben";
-                                        $message .= " (" . $diff . ": " . number_format(abs($paymentDifference), 2) . " €)";
-                                    }
+                            
+                            if ($lastReading && isset($lastReading['meter_value'])) {
+                                $consumption = $meterValue - (float)$lastReading['meter_value'];
+                                
+                                if ($consumption < 0) {
+                                    Flash::error('Der neue Zählerstand ist kleiner als der vorherige. Bitte prüfen Sie die Eingabe.');
+                                    break;
+                                }
+                                
+                                if ($currentRate > 0) {
+                                    $energyCost = $consumption * $currentRate;
+                                    $totalBill = $energyCost + $basicFee;
+                                    $paymentDifference = $totalBill - $monthlyPayment;
                                 }
                             }
-                            Flash::success($message);
-                        } else {
-                            Flash::error('Fehler beim Speichern des Zählerstands.');
+                            
+                            // Daten für Insert vorbereiten (nur definierte Spalten)
+                            $insertData = [
+                                'user_id' => $userId,
+                                'reading_date' => $readingDate,
+                                'meter_value' => $meterValue,
+                                'notes' => $notes
+                            ];
+                            
+                            // Erweiterte Felder nur hinzufügen wenn sie berechnet wurden
+                            if ($consumption !== null) {
+                                $insertData['consumption'] = $consumption;
+                            }
+                            if ($energyCost !== null) {
+                                $insertData['cost'] = $energyCost;
+                                $insertData['rate_per_kwh'] = $currentRate;
+                            }
+                            if ($monthlyPayment > 0) {
+                                $insertData['monthly_payment'] = $monthlyPayment;
+                            }
+                            if ($basicFee > 0) {
+                                $insertData['basic_fee'] = $basicFee;
+                            }
+                            if ($totalBill !== null) {
+                                $insertData['total_bill'] = $totalBill;
+                            }
+                            if ($paymentDifference !== null) {
+                                $insertData['payment_difference'] = $paymentDifference;
+                            }
+                            
+                            $readingId = Database::insert('meter_readings', $insertData);
+                            
+                            if ($readingId) {
+                                $message = "Zählerstand erfolgreich gespeichert.";
+                                if ($consumption !== null) {
+                                    $message .= " Verbrauch: " . number_format($consumption, 1) . " kWh";
+                                    if ($energyCost !== null) {
+                                        $message .= ", Stromkosten: " . number_format($energyCost, 2) . " €";
+                                    }
+                                }
+                                Flash::success($message);
+                            } else {
+                                Flash::error('Fehler beim Speichern des Zählerstands.');
+                            }
                         }
                     }
+                } catch (Exception $e) {
+                    error_log("Reading insert error: " . $e->getMessage());
+                    Flash::error('Systemfehler beim Speichern. Bitte versuchen Sie es erneut.');
                 }
                 break;
                 
             case 'edit':
-                // Zählerstand bearbeiten
-                $readingId = (int)($_POST['reading_id'] ?? 0);
-                $meterValue = (float)($_POST['meter_value'] ?? 0);
-                $notes = trim($_POST['notes'] ?? '');
-                
-                if ($readingId <= 0 || $meterValue <= 0) {
-                    Flash::error('Bitte geben Sie einen gültigen Zählerstand ein.');
-                } else {
-                    // Aktueller Eintrag holen
-                    $currentReading = Database::fetchOne(
-                        "SELECT * FROM meter_readings WHERE id = ? AND user_id = ?",
-                        [$readingId, $userId]
-                    );
+                try {
+                    // Zählerstand bearbeiten (vereinfacht)
+                    $readingId = (int)($_POST['reading_id'] ?? 0);
+                    $meterValue = (float)($_POST['meter_value'] ?? 0);
+                    $notes = trim($_POST['notes'] ?? '');
                     
-                    if (!$currentReading) {
-                        Flash::error('Zählerstand nicht gefunden.');
+                    if ($readingId <= 0 || $meterValue <= 0) {
+                        Flash::error('Bitte geben Sie einen gültigen Zählerstand ein.');
                     } else {
-                        // Verbrauch neu berechnen
-                        $lastReading = Database::fetchOne(
-                            "SELECT meter_value FROM meter_readings 
-                             WHERE user_id = ? AND reading_date < ? 
-                             ORDER BY reading_date DESC LIMIT 1",
-                            [$userId, $currentReading['reading_date']]
-                        );
-                        
-                        $consumption = null;
-                        $cost = null;
-                        
-                        if ($lastReading) {
-                            $consumption = $meterValue - $lastReading['meter_value'];
-                            $energyCost = $consumption * $currentRate;
-                            $totalBill = $energyCost + $basicFee;
-                            $paymentDifference = $totalBill - $monthlyPayment;
-                            
-                            if ($consumption < 0) {
-                                Flash::error('Der Zählerstand ist kleiner als der vorherige. Bitte prüfen Sie die Eingabe.');
-                                break;
-                            }
-                        } else {
-                            $consumption = null;
-                            $energyCost = null;
-                            $totalBill = null;
-                            $paymentDifference = null;
-                        }
-                        
                         $success = Database::update('meter_readings', [
                             'meter_value' => $meterValue,
-                            'consumption' => $consumption,
-                            'cost' => $energyCost,
-                            'total_bill' => $totalBill,
-                            'payment_difference' => $paymentDifference,
                             'notes' => $notes
                         ], 'id = ? AND user_id = ?', [$readingId, $userId]);
                         
@@ -180,23 +174,31 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                             Flash::error('Fehler beim Bearbeiten des Zählerstands.');
                         }
                     }
+                } catch (Exception $e) {
+                    error_log("Reading edit error: " . $e->getMessage());
+                    Flash::error('Systemfehler beim Bearbeiten.');
                 }
                 break;
                 
             case 'delete':
-                // Zählerstand löschen
-                $readingId = (int)($_POST['reading_id'] ?? 0);
-                
-                if ($readingId <= 0) {
-                    Flash::error('Ungültige ID.');
-                } else {
-                    $success = Database::delete('meter_readings', 'id = ? AND user_id = ?', [$readingId, $userId]);
+                try {
+                    // Zählerstand löschen
+                    $readingId = (int)($_POST['reading_id'] ?? 0);
                     
-                    if ($success) {
-                        Flash::success('Zählerstand wurde erfolgreich gelöscht.');
+                    if ($readingId <= 0) {
+                        Flash::error('Ungültige ID.');
                     } else {
-                        Flash::error('Fehler beim Löschen des Zählerstands.');
+                        $success = Database::delete('meter_readings', 'id = ? AND user_id = ?', [$readingId, $userId]);
+                        
+                        if ($success) {
+                            Flash::success('Zählerstand wurde erfolgreich gelöscht.');
+                        } else {
+                            Flash::error('Fehler beim Löschen des Zählerstands.');
+                        }
                     }
+                } catch (Exception $e) {
+                    error_log("Reading delete error: " . $e->getMessage());
+                    Flash::error('Systemfehler beim Löschen.');
                 }
                 break;
         }
@@ -207,15 +209,21 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     exit;
 }
 
-// Zählerstände laden
-$readings = Database::fetchAll(
-    "SELECT * FROM meter_readings 
-     WHERE user_id = ? 
-     ORDER BY reading_date DESC",
-    [$userId]
-) ?: [];
+// Zählerstände laden (mit robuster Fehlerbehandlung)
+$readings = [];
+try {
+    $readings = Database::fetchAll(
+        "SELECT * FROM meter_readings 
+         WHERE user_id = ? 
+         ORDER BY reading_date DESC",
+        [$userId]
+    ) ?: [];
+} catch (Exception $e) {
+    error_log("Readings fetch error: " . $e->getMessage());
+    Flash::error('Fehler beim Laden der Zählerstände.');
+}
 
-// Statistiken berechnen
+// Statistiken berechnen (robust mit Fallbacks)
 $stats = [
     'total_readings' => count($readings),
     'current_month_consumption' => 0,
@@ -227,29 +235,35 @@ $stats = [
 $currentYear = date('Y');
 $currentMonth = date('Y-m');
 
-foreach ($readings as $reading) {
-    if ($reading['consumption']) {
-        // Aktueller Monat
-        if (date('Y-m', strtotime($reading['reading_date'])) === $currentMonth) {
-            $stats['current_month_consumption'] = $reading['consumption'];
-            $stats['current_month_cost'] = $reading['cost'];
-        }
-        
-        // Aktuelles Jahr
-        if (date('Y', strtotime($reading['reading_date'])) === $currentYear) {
-            $stats['year_consumption'] += $reading['consumption'];
-            $stats['year_cost'] += $reading['cost'];
+try {
+    foreach ($readings as $reading) {
+        if (isset($reading['consumption']) && $reading['consumption'] > 0) {
+            // Aktueller Monat
+            if (date('Y-m', strtotime($reading['reading_date'])) === $currentMonth) {
+                $stats['current_month_consumption'] = (float)$reading['consumption'];
+                $stats['current_month_cost'] = (float)($reading['cost'] ?? 0);
+            }
+            
+            // Aktuelles Jahr
+            if (date('Y', strtotime($reading['reading_date'])) === $currentYear) {
+                $stats['year_consumption'] += (float)$reading['consumption'];
+                $stats['year_cost'] += (float)($reading['cost'] ?? 0);
+            }
         }
     }
+} catch (Exception $e) {
+    error_log("Stats calculation error: " . $e->getMessage());
 }
 
 // Nächste Ablesung vorschlagen
 $suggestedDate = date('Y-m-01'); // Erster des aktuellen Monats
 if (!empty($readings)) {
-    $lastDate = $readings[0]['reading_date'];
-    $nextDate = date('Y-m-01', strtotime($lastDate . '+1 month'));
-    if (strtotime($nextDate) <= time()) {
-        $suggestedDate = $nextDate;
+    $lastDate = $readings[0]['reading_date'] ?? '';
+    if ($lastDate) {
+        $nextDate = date('Y-m-01', strtotime($lastDate . '+1 month'));
+        if (strtotime($nextDate) <= time()) {
+            $suggestedDate = $nextDate;
+        }
     }
 }
 
@@ -339,7 +353,7 @@ include 'includes/navbar.php';
         </div>
     </div>
 
-    <!-- Tarif Info -->
+    <!-- Tarif Info (falls vorhanden) -->
     <?php if ($currentTariff): ?>
     <div class="row mb-4">
         <div class="col-12">
@@ -423,9 +437,10 @@ include 'includes/navbar.php';
                                 <th>Zählerstand</th>
                                 <th>Verbrauch</th>
                                 <th>Stromkosten</th>
-                                <th>Gesamtrechnung</th>
-                                <th>Abschlag</th>
-                                <th>Differenz</th>
+                                <?php if ($currentTariff): ?>
+                                    <th>Gesamtrechnung</th>
+                                    <th>Differenz</th>
+                                <?php endif; ?>
                                 <th>Notizen</th>
                                 <th>Aktionen</th>
                             </tr>
@@ -447,7 +462,7 @@ include 'includes/navbar.php';
                                     </td>
                                     
                                     <td>
-                                        <?php if ($reading['consumption']): ?>
+                                        <?php if (isset($reading['consumption']) && $reading['consumption']): ?>
                                             <div class="fw-bold text-success">
                                                 <?= number_format($reading['consumption'], 2) ?> kWh
                                             </div>
@@ -460,64 +475,58 @@ include 'includes/navbar.php';
                                     </td>
                                     
                                     <td>
-                                        <?php if ($reading['cost']): ?>
+                                        <?php if (isset($reading['cost']) && $reading['cost']): ?>
                                             <div class="fw-bold text-warning">
                                                 <?= number_format($reading['cost'], 2) ?> €
                                             </div>
-                                            <small class="text-muted">
-                                                <?= number_format($reading['rate_per_kwh'], 4) ?> €/kWh
-                                            </small>
-                                        <?php else: ?>
-                                            <span class="text-muted">-</span>
-                                        <?php endif; ?>
-                                    </td>
-                                    
-                                    <td>
-                                        <?php if ($reading['total_bill']): ?>
-                                            <div class="fw-bold text-primary">
-                                                <?= number_format($reading['total_bill'], 2) ?> €
-                                            </div>
-                                            <small class="text-muted">
-                                                inkl. <?= number_format($reading['basic_fee'], 2) ?> € Grundgeb.
-                                            </small>
-                                        <?php else: ?>
-                                            <span class="text-muted">-</span>
-                                        <?php endif; ?>
-                                    </td>
-                                    
-                                    <td>
-                                        <?php if ($reading['monthly_payment']): ?>
-                                            <span class="badge bg-info">
-                                                <?= number_format($reading['monthly_payment'], 2) ?> €
-                                            </span>
-                                        <?php else: ?>
-                                            <span class="text-muted">-</span>
-                                        <?php endif; ?>
-                                    </td>
-                                    
-                                    <td>
-                                        <?php if ($reading['payment_difference'] !== null): ?>
-                                            <?php if ($reading['payment_difference'] > 0): ?>
-                                                <span class="badge bg-danger">
-                                                    <i class="bi bi-arrow-up"></i>
-                                                    <?= number_format($reading['payment_difference'], 2) ?> €
-                                                </span>
-                                                <br><small class="text-danger">Nachzahlung</small>
-                                            <?php elseif ($reading['payment_difference'] < 0): ?>
-                                                <span class="badge bg-success">
-                                                    <i class="bi bi-arrow-down"></i>
-                                                    <?= number_format(abs($reading['payment_difference']), 2) ?> €
-                                                </span>
-                                                <br><small class="text-success">Guthaben</small>
-                                            <?php else: ?>
-                                                <span class="badge bg-secondary">
-                                                    <i class="bi bi-check"></i> Exakt
-                                                </span>
+                                            <?php if (isset($reading['rate_per_kwh'])): ?>
+                                                <small class="text-muted">
+                                                    <?= number_format($reading['rate_per_kwh'], 4) ?> €/kWh
+                                                </small>
                                             <?php endif; ?>
                                         <?php else: ?>
                                             <span class="text-muted">-</span>
                                         <?php endif; ?>
                                     </td>
+                                    
+                                    <?php if ($currentTariff): ?>
+                                        <td>
+                                            <?php if (isset($reading['total_bill']) && $reading['total_bill']): ?>
+                                                <div class="fw-bold text-primary">
+                                                    <?= number_format($reading['total_bill'], 2) ?> €
+                                                </div>
+                                                <small class="text-muted">
+                                                    inkl. <?= number_format($reading['basic_fee'] ?? 0, 2) ?> € Grundgeb.
+                                                </small>
+                                            <?php else: ?>
+                                                <span class="text-muted">-</span>
+                                            <?php endif; ?>
+                                        </td>
+                                        
+                                        <td>
+                                            <?php if (isset($reading['payment_difference']) && $reading['payment_difference'] !== null): ?>
+                                                <?php if ($reading['payment_difference'] > 0): ?>
+                                                    <span class="badge bg-danger">
+                                                        <i class="bi bi-arrow-up"></i>
+                                                        <?= number_format($reading['payment_difference'], 2) ?> €
+                                                    </span>
+                                                    <br><small class="text-danger">Nachzahlung</small>
+                                                <?php elseif ($reading['payment_difference'] < 0): ?>
+                                                    <span class="badge bg-success">
+                                                        <i class="bi bi-arrow-down"></i>
+                                                        <?= number_format(abs($reading['payment_difference']), 2) ?> €
+                                                    </span>
+                                                    <br><small class="text-success">Guthaben</small>
+                                                <?php else: ?>
+                                                    <span class="badge bg-secondary">
+                                                        <i class="bi bi-check"></i> Exakt
+                                                    </span>
+                                                <?php endif; ?>
+                                            <?php else: ?>
+                                                <span class="text-muted">-</span>
+                                            <?php endif; ?>
+                                        </td>
+                                    <?php endif; ?>
                                     
                                     <td>
                                         <?php if (!empty($reading['notes'])): ?>
@@ -573,7 +582,7 @@ include 'includes/navbar.php';
                     
                     <div class="mb-3">
                         <label class="form-label">Ablesung für Monat</label>
-                        <input type="month" class="form-control" name="reading_date" 
+                        <input type="date" class="form-control" name="reading_date" 
                                value="<?= $suggestedDate ?>" required>
                         <div class="form-text">
                             <i class="bi bi-info-circle"></i>

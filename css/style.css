@@ -48,6 +48,17 @@ body {
   background-color: var(--gray-50);
   color: var(--gray-700);
   line-height: 1.6;
+  
+  /* Sticky Footer Setup */
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+}
+
+/* Main content area - nimmt verfügbaren Platz ein */
+.main-content,
+.container-fluid {
+  flex: 1;
 }
 
 /* ============================================

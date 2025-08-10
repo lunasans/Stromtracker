@@ -1,6 +1,6 @@
 <?php
 // tarife.php
-// Tarif-Verwaltung (Abschlag, Grundgebühr, Strompreise)
+// EINFACHE & SCHÖNE Tarif-Verwaltung (Abschlag, Grundgebühr, Strompreise)
 
 require_once 'config/database.php';
 require_once 'config/session.php';
@@ -143,236 +143,289 @@ $currentTariff = Database::fetchOne(
     [$userId]
 );
 
-// Abschlag-Analyse der letzten 12 Monate
+// Statistiken berechnen
+$stats = [
+    'total_tariffs' => count($tariffs),
+    'active_tariff' => $currentTariff ? 1 : 0,
+    'current_rate' => $currentTariff['rate_per_kwh'] ?? 0,
+    'current_payment' => $currentTariff['monthly_payment'] ?? 0
+];
+
+// Abschlag-Analyse der letzten 12 Monate (falls vorhanden)
 $paymentAnalysis = Database::fetchAll(
-    "SELECT * FROM payment_analysis 
-     WHERE user_id = ? 
-     ORDER BY reading_date DESC 
+    "SELECT mr.*, tp.monthly_payment, 
+            (mr.total_bill - tp.monthly_payment) as payment_difference
+     FROM meter_readings mr 
+     JOIN tariff_periods tp ON DATE(mr.reading_date) BETWEEN tp.valid_from AND COALESCE(tp.valid_to, CURDATE())
+     WHERE mr.user_id = ? AND mr.reading_date >= DATE_SUB(CURDATE(), INTERVAL 12 MONTH)
+     ORDER BY mr.reading_date DESC 
      LIMIT 12",
     [$userId]
 ) ?: [];
-
-// Jahresabrechnung-Prognose
-$yearlyForecast = Database::fetchOne(
-    "SELECT * FROM yearly_billing_forecast 
-     WHERE user_id = ? AND year = YEAR(CURDATE())
-     LIMIT 1",
-    [$userId]
-);
 
 include 'includes/header.php';
 include 'includes/navbar.php';
 ?>
 
+<!-- Tarif-Verwaltung Content -->
 <div class="container-fluid py-4">
     
     <!-- Header -->
     <div class="row mb-4">
-        <div class="col-md-8">
-            <h1 class="mb-2">
-                <i class="bi bi-receipt text-warning"></i>
-                Tarif-Verwaltung
-            </h1>
-            <p class="text-muted">Verwalten Sie Ihren Stromtarif, Abschlag und Grundgebühr.</p>
-        </div>
-        <div class="col-md-4 text-end">
-            <button class="btn btn-success" data-bs-toggle="modal" data-bs-target="#addTariffModal">
-                <i class="bi bi-plus-circle"></i>
-                Neuer Tarif
-            </button>
+        <div class="col-12">
+            <div class="card glass p-4">
+                <div class="row align-items-center">
+                    <div class="col-md-8">
+                        <h1 class="text-energy mb-2">
+                            <span class="energy-indicator"></span>
+                            <i class="bi bi-receipt"></i>
+                            Tarif-Verwaltung
+                        </h1>
+                        <p class="text-muted mb-0">Verwalten Sie Ihren Stromtarif, Abschlag und Grundgebühr.</p>
+                    </div>
+                    <div class="col-md-4 text-end">
+                        <button class="btn btn-energy" data-bs-toggle="modal" data-bs-target="#addTariffModal">
+                            <i class="bi bi-plus-circle me-2"></i>
+                            Neuer Tarif
+                        </button>
+                    </div>
+                </div>
+            </div>
         </div>
     </div>
     
+    <!-- Statistik Cards -->
+    <div class="row mb-4">
+        <div class="col-md-3 mb-3">
+            <div class="stats-card primary">
+                <div class="flex-between mb-3">
+                    <i class="stats-icon bi bi-receipt"></i>
+                    <div class="small">
+                        Gesamt
+                    </div>
+                </div>
+                <h3><?= $stats['total_tariffs'] ?></h3>
+                <p>Tarife erfasst</p>
+            </div>
+        </div>
+        
+        <div class="col-md-3 mb-3">
+            <div class="stats-card <?= $stats['active_tariff'] > 0 ? 'success' : 'danger' ?>">
+                <div class="flex-between mb-3">
+                    <i class="stats-icon bi bi-<?= $stats['active_tariff'] > 0 ? 'check-circle' : 'x-circle' ?>"></i>
+                    <div class="small">
+                        Status
+                    </div>
+                </div>
+                <h3><?= $stats['active_tariff'] > 0 ? 'Aktiv' : 'Fehlt' ?></h3>
+                <p>Aktueller Tarif</p>
+            </div>
+        </div>
+        
+        <div class="col-md-3 mb-3">
+            <div class="stats-card energy">
+                <div class="flex-between mb-3">
+                    <i class="stats-icon bi bi-lightning-charge"></i>
+                    <div class="small">
+                        €/kWh
+                    </div>
+                </div>
+                <h3><?= number_format($stats['current_rate'], 4) ?></h3>
+                <p>Arbeitspreis</p>
+            </div>
+        </div>
+        
+        <div class="col-md-3 mb-3">
+            <div class="stats-card warning">
+                <div class="flex-between mb-3">
+                    <i class="stats-icon bi bi-calendar-check"></i>
+                    <div class="small">
+                        Monatlich
+                    </div>
+                </div>
+                <h3><?= number_format($stats['current_payment'], 0) ?> €</h3>
+                <p>Abschlag</p>
+            </div>
+        </div>
+    </div>
+
     <!-- Aktueller Tarif -->
     <?php if ($currentTariff): ?>
         <div class="row mb-4">
             <div class="col-12">
-                <div class="card border-success">
-                    <div class="card-header bg-success text-white">
-                        <h5 class="mb-0">
-                            <i class="bi bi-check-circle"></i>
-                            Aktueller Tarif
-                        </h5>
+                <div class="card" style="border: 2px solid var(--success); border-radius: var(--radius-xl);">
+                    <div class="card-header" style="background: var(--success); color: white;">
+                        <div class="flex-between">
+                            <h5 class="mb-0">
+                                <i class="bi bi-check-circle me-2"></i>
+                                Aktueller Tarif
+                            </h5>
+                            <span class="badge bg-light text-dark">
+                                Seit <?= date('d.m.Y', strtotime($currentTariff['valid_from'])) ?>
+                            </span>
+                        </div>
                     </div>
                     <div class="card-body">
                         <div class="row">
-                            <div class="col-md-3">
-                                <h6>Anbieter & Tarif</h6>
-                                <p class="mb-1"><strong><?= escape($currentTariff['provider_name']) ?></strong></p>
-                                <p class="text-muted"><?= escape($currentTariff['tariff_name']) ?></p>
-                                <?php if ($currentTariff['customer_number']): ?>
-                                    <small class="text-muted">Kundennr: <?= escape($currentTariff['customer_number']) ?></small>
-                                <?php endif; ?>
-                            </div>
-                            
-                            <div class="col-md-2">
-                                <h6>Arbeitspreis</h6>
-                                <div class="h4 text-primary"><?= formatCurrency($currentTariff['rate_per_kwh']) ?></div>
-                                <small class="text-muted">pro kWh</small>
-                            </div>
-                            
-                            <div class="col-md-2">
-                                <h6>Monatlicher Abschlag</h6>
-                                <div class="h4 text-warning"><?= formatCurrency($currentTariff['monthly_payment']) ?></div>
-                                <small class="text-muted">pro Monat</small>
-                            </div>
-                            
-                            <div class="col-md-2">
-                                <h6>Grundgebühr</h6>
-                                <div class="h4 text-info"><?= formatCurrency($currentTariff['basic_fee']) ?></div>
-                                <small class="text-muted">pro Monat</small>
-                            </div>
-                            
-                            <div class="col-md-2">
-                                <h6>Gültig seit</h6>
-                                <div class="h6"><?= formatDateShort($currentTariff['valid_from']) ?></div>
-                            </div>
-                            
-                            <div class="col-md-1 text-end">
-                                <button class="btn btn-sm btn-outline-primary" 
-                                        onclick="editTariff(<?= htmlspecialchars(json_encode($currentTariff)) ?>)"
-                                        data-bs-toggle="modal" data-bs-target="#editTariffModal">
-                                    <i class="bi bi-pencil"></i>
-                                </button>
-                            </div>
-                        </div>
-                    </div>
-                </div>
-            </div>
-        </div>
-    <?php else: ?>
-        <div class="alert alert-warning mb-4">
-            <h6 class="alert-heading">
-                <i class="bi bi-exclamation-triangle"></i>
-                Kein aktiver Tarif
-            </h6>
-            <p class="mb-0">
-                Sie haben noch keinen Stromtarif erfasst. 
-                <button class="btn btn-warning btn-sm" data-bs-toggle="modal" data-bs-target="#addTariffModal">
-                    Jetzt erstellen
-                </button>
-            </p>
-        </div>
-    <?php endif; ?>
-    
-    <!-- Abschlag vs. Realität -->
-    <?php if (!empty($paymentAnalysis) && $yearlyForecast): ?>
-        <div class="row mb-4">
-            
-            <!-- Jahresübersicht -->
-            <div class="col-md-8 mb-4">
-                <div class="card">
-                    <div class="card-header">
-                        <h5 class="mb-0">
-                            <i class="bi bi-graph-up-arrow text-success"></i>
-                            Abschlag vs. tatsächliche Kosten <?= date('Y') ?>
-                        </h5>
-                    </div>
-                    <div class="card-body">
-                        <div class="row mb-3">
-                            <div class="col-md-3">
-                                <div class="text-center p-3 bg-primary bg-opacity-10 rounded">
-                                    <div class="h4 text-primary"><?= formatCurrency($yearlyForecast['total_payments']) ?></div>
-                                    <small>Abschläge gezahlt</small>
-                                </div>
-                            </div>
-                            <div class="col-md-3">
-                                <div class="text-center p-3 bg-warning bg-opacity-10 rounded">
-                                    <div class="h4 text-warning"><?= formatCurrency($yearlyForecast['actual_total_cost']) ?></div>
-                                    <small>Tatsächliche Kosten</small>
-                                </div>
-                            </div>
-                            <div class="col-md-3">
-                                <div class="text-center p-3 <?= $yearlyForecast['total_difference'] >= 0 ? 'bg-danger bg-opacity-10' : 'bg-success bg-opacity-10' ?> rounded">
-                                    <div class="h4 <?= $yearlyForecast['total_difference'] >= 0 ? 'text-danger' : 'text-success' ?>">
-                                        <?= $yearlyForecast['total_difference'] >= 0 ? '+' : '' ?><?= formatCurrency($yearlyForecast['total_difference']) ?>
+                            <div class="col-md-3 mb-3">
+                                <div class="d-flex align-items-center">
+                                    <i class="bi bi-building text-primary me-3" style="font-size: 1.5rem;"></i>
+                                    <div>
+                                        <small class="text-muted">Anbieter & Tarif</small>
+                                        <div class="fw-bold"><?= htmlspecialchars($currentTariff['provider_name'] ?: 'Nicht angegeben') ?></div>
+                                        <small class="text-energy"><?= htmlspecialchars($currentTariff['tariff_name'] ?: 'Standard') ?></small>
                                     </div>
-                                    <small><?= $yearlyForecast['total_difference'] >= 0 ? 'Nachzahlung' : 'Guthaben' ?></small>
                                 </div>
                             </div>
-                            <div class="col-md-3">
-                                <div class="text-center p-3 bg-info bg-opacity-10 rounded">
-                                    <div class="h4 text-info"><?= formatCurrency($yearlyForecast['projected_yearly_cost']) ?></div>
-                                    <small>Jahresprognose</small>
+                            
+                            <div class="col-md-3 mb-3">
+                                <div class="d-flex align-items-center">
+                                    <i class="bi bi-lightning-charge text-energy me-3" style="font-size: 1.5rem;"></i>
+                                    <div>
+                                        <small class="text-muted">Arbeitspreis</small>
+                                        <div class="fw-bold"><?= number_format($currentTariff['rate_per_kwh'], 4) ?> €/kWh</div>
+                                        <small class="text-muted">pro Kilowattstunde</small>
+                                    </div>
+                                </div>
+                            </div>
+                            
+                            <div class="col-md-3 mb-3">
+                                <div class="d-flex align-items-center">
+                                    <i class="bi bi-calendar-check text-warning me-3" style="font-size: 1.5rem;"></i>
+                                    <div>
+                                        <small class="text-muted">Monatlicher Abschlag</small>
+                                        <div class="fw-bold"><?= number_format($currentTariff['monthly_payment'], 2) ?> €</div>
+                                        <small class="text-muted">Vorauszahlung</small>
+                                    </div>
+                                </div>
+                            </div>
+                            
+                            <div class="col-md-3 mb-3">
+                                <div class="d-flex align-items-center">
+                                    <i class="bi bi-receipt text-info me-3" style="font-size: 1.5rem;"></i>
+                                    <div>
+                                        <small class="text-muted">Grundgebühr</small>
+                                        <div class="fw-bold"><?= number_format($currentTariff['basic_fee'], 2) ?> €/Monat</div>
+                                        <small class="text-muted">Fixkosten</small>
+                                    </div>
                                 </div>
                             </div>
                         </div>
                         
-                        <!-- Prognose-Info -->
-                        <div class="alert alert-info">
-                            <h6 class="alert-heading">
-                                <i class="bi bi-calculator"></i>
-                                Jahresabrechnung-Prognose
-                            </h6>
-                            <p class="mb-2">
-                                <strong>Erwartete Gesamt-Nachzahlung/-Guthaben:</strong> 
-                                <span class="<?= ($yearlyForecast['projected_yearly_cost'] - ($yearlyForecast['avg_monthly_payment'] * 12)) >= 0 ? 'text-danger' : 'text-success' ?>">
-                                    <?= ($yearlyForecast['projected_yearly_cost'] - ($yearlyForecast['avg_monthly_payment'] * 12)) >= 0 ? '+' : '' ?>
-                                    <?= formatCurrency($yearlyForecast['projected_yearly_cost'] - ($yearlyForecast['avg_monthly_payment'] * 12)) ?>
-                                </span>
-                            </p>
-                            <small class="text-muted">
-                                Basierend auf <?= $yearlyForecast['readings_count'] ?> Ablesungen. 
-                                Durchschnittlicher Verbrauch: <?= formatKwh($yearlyForecast['avg_monthly_consumption']) ?>/Monat
-                            </small>
+                        <?php if (!empty($currentTariff['customer_number']) || !empty($currentTariff['notes'])): ?>
+                        <hr style="border-color: var(--gray-200);">
+                        <div class="row">
+                            <?php if (!empty($currentTariff['customer_number'])): ?>
+                            <div class="col-md-6">
+                                <small class="text-muted">Kundennummer:</small>
+                                <div class="fw-bold"><?= htmlspecialchars($currentTariff['customer_number']) ?></div>
+                            </div>
+                            <?php endif; ?>
+                            
+                            <?php if (!empty($currentTariff['notes'])): ?>
+                            <div class="col-md-6">
+                                <small class="text-muted">Notizen:</small>
+                                <div><?= htmlspecialchars($currentTariff['notes']) ?></div>
+                            </div>
+                            <?php endif; ?>
+                        </div>
+                        <?php endif; ?>
+                        
+                        <div class="text-end mt-3">
+                            <button class="btn btn-outline-primary btn-sm me-2" 
+                                    onclick="editTariff(<?= htmlspecialchars(json_encode($currentTariff)) ?>)">
+                                <i class="bi bi-pencil"></i> Bearbeiten
+                            </button>
+                            <button class="btn btn-outline-warning btn-sm" 
+                                    onclick="endTariff(<?= $currentTariff['id'] ?>, '<?= htmlspecialchars($currentTariff['tariff_name'] ?: 'Aktueller Tarif') ?>')">
+                                <i class="bi bi-stop-circle"></i> Tarif beenden
+                            </button>
                         </div>
                     </div>
                 </div>
             </div>
-            
-            <!-- Monatlicher Trend -->
-            <div class="col-md-4 mb-4">
-                <div class="card">
-                    <div class="card-header">
-                        <h5 class="mb-0">
-                            <i class="bi bi-calendar-month text-info"></i>
-                            Letzte Monate
-                        </h5>
-                    </div>
-                    <div class="card-body">
-                        <?php foreach (array_slice($paymentAnalysis, 0, 6) as $month): ?>
-                            <div class="d-flex justify-content-between align-items-center mb-2 p-2 rounded <?= $month['payment_difference'] >= 0 ? 'bg-danger bg-opacity-10' : 'bg-success bg-opacity-10' ?>">
-                                <div>
-                                    <strong><?= $month['month_name'] ?> <?= $month['year'] ?></strong><br>
-                                    <small class="text-muted"><?= formatKwh($month['consumption']) ?></small>
-                                </div>
-                                <div class="text-end">
-                                    <div class="<?= $month['payment_difference'] >= 0 ? 'text-danger' : 'text-success' ?>">
-                                        <?= $month['payment_difference'] >= 0 ? '+' : '' ?><?= formatCurrency($month['payment_difference']) ?>
+        </div>
+    <?php endif; ?>
+
+    <!-- Abschlag-Analyse (falls vorhanden) -->
+    <?php if (!empty($paymentAnalysis)): ?>
+    <div class="row mb-4">
+        <div class="col-12">
+            <div class="card">
+                <div class="card-header">
+                    <h5 class="mb-0">
+                        <i class="bi bi-graph-up text-energy"></i>
+                        Abschlag-Analyse (Letzte 12 Monate)
+                    </h5>
+                </div>
+                <div class="card-body">
+                    <div class="row">
+                        <?php 
+                        $totalDifference = 0;
+                        $months = array_slice($paymentAnalysis, 0, 6); // Nur 6 für bessere Darstellung
+                        ?>
+                        <?php foreach ($months as $month): ?>
+                            <?php $totalDifference += $month['payment_difference'] ?? 0; ?>
+                            <div class="col-md-2 mb-3">
+                                <div class="text-center p-3" style="background: var(--gray-50); border-radius: var(--radius-lg);">
+                                    <div class="fw-bold"><?= date('M Y', strtotime($month['reading_date'])) ?></div>
+                                    <div class="mt-2 <?= ($month['payment_difference'] ?? 0) >= 0 ? 'text-danger' : 'text-success' ?>">
+                                        <div class="fw-bold">
+                                            <?= ($month['payment_difference'] ?? 0) >= 0 ? '+' : '' ?><?= number_format($month['payment_difference'] ?? 0, 2) ?> €
+                                        </div>
+                                        <small class="text-muted"><?= number_format($month['total_bill'] ?? 0, 2) ?> €</small>
                                     </div>
-                                    <small class="text-muted"><?= formatCurrency($month['total_bill']) ?></small>
                                 </div>
                             </div>
                         <?php endforeach; ?>
                     </div>
+                    
+                    <?php if (count($paymentAnalysis) > 0): ?>
+                    <div class="alert alert-info mt-3">
+                        <strong>Trend:</strong> 
+                        <?php if ($totalDifference > 10): ?>
+                            <span class="text-danger">⬆️ Durchschnittlich <?= number_format($totalDifference / count($months), 2) ?> € Nachzahlung pro Monat. Abschlag sollte erhöht werden.</span>
+                        <?php elseif ($totalDifference < -10): ?>
+                            <span class="text-success">⬇️ Durchschnittlich <?= number_format(abs($totalDifference) / count($months), 2) ?> € Guthaben pro Monat. Abschlag könnte reduziert werden.</span>
+                        <?php else: ?>
+                            <span class="text-success">✅ Abschlag ist gut kalkuliert (Abweichung: <?= number_format($totalDifference / count($months), 2) ?> € pro Monat).</span>
+                        <?php endif; ?>
+                    </div>
+                    <?php endif; ?>
                 </div>
             </div>
         </div>
+    </div>
     <?php endif; ?>
     
     <!-- Tarif-Historie -->
     <div class="card">
         <div class="card-header">
-            <h5 class="mb-0">
-                <i class="bi bi-clock-history"></i>
-                Tarif-Historie
-            </h5>
+            <div class="flex-between">
+                <h5 class="mb-0">
+                    <i class="bi bi-clock-history text-energy"></i>
+                    Tarif-Historie
+                </h5>
+                <span class="badge bg-primary"><?= count($tariffs) ?> Tarife</span>
+            </div>
         </div>
         <div class="card-body p-0">
             <?php if (empty($tariffs)): ?>
-                <div class="text-center py-4">
-                    <i class="bi bi-receipt display-4 text-muted"></i>
-                    <h4 class="mt-3">Keine Tarife erfasst</h4>
-                    <p class="text-muted">Erstellen Sie Ihren ersten Stromtarif.</p>
-                    <button class="btn btn-success" data-bs-toggle="modal" data-bs-target="#addTariffModal">
-                        <i class="bi bi-plus-circle"></i>
+                <div class="text-center py-5">
+                    <div class="mb-4">
+                        <i class="bi bi-receipt display-2 text-muted"></i>
+                    </div>
+                    <h4 class="text-muted">Keine Tarife erfasst</h4>
+                    <p class="text-muted mb-4">Erstellen Sie Ihren ersten Stromtarif.</p>
+                    <button class="btn btn-energy" data-bs-toggle="modal" data-bs-target="#addTariffModal">
+                        <i class="bi bi-plus-circle me-2"></i>
                         Ersten Tarif erstellen
                     </button>
                 </div>
             <?php else: ?>
                 <div class="table-responsive">
                     <table class="table table-hover mb-0">
-                        <thead class="table-light">
+                        <thead style="background: var(--gray-50);">
                             <tr>
                                 <th>Status</th>
                                 <th>Zeitraum</th>
@@ -385,7 +438,7 @@ include 'includes/navbar.php';
                         </thead>
                         <tbody>
                             <?php foreach ($tariffs as $tariff): ?>
-                                <tr>
+                                <tr class="<?= !$tariff['is_active'] && $tariff['valid_to'] ? 'table-secondary' : '' ?>">
                                     <td>
                                         <?php if ($tariff['is_active']): ?>
                                             <span class="badge bg-success">
@@ -393,52 +446,51 @@ include 'includes/navbar.php';
                                             </span>
                                         <?php else: ?>
                                             <span class="badge bg-secondary">
-                                                <i class="bi bi-archive"></i> Beendet
+                                                <i class="bi bi-clock"></i> Beendet
                                             </span>
                                         <?php endif; ?>
                                     </td>
-                                    
                                     <td>
-                                        <strong><?= formatDateShort($tariff['valid_from']) ?></strong>
+                                        <div class="fw-bold"><?= date('d.m.Y', strtotime($tariff['valid_from'])) ?></div>
                                         <?php if ($tariff['valid_to']): ?>
-                                            <br>bis <?= formatDateShort($tariff['valid_to']) ?>
+                                            <small class="text-muted">bis <?= date('d.m.Y', strtotime($tariff['valid_to'])) ?></small>
                                         <?php else: ?>
-                                            <br><small class="text-muted">unbegrenzt</small>
+                                            <small class="text-success">unbegrenzt</small>
                                         <?php endif; ?>
                                     </td>
-                                    
                                     <td>
-                                        <div><strong><?= escape($tariff['provider_name']) ?></strong></div>
-                                        <small class="text-muted"><?= escape($tariff['tariff_name']) ?></small>
+                                        <div class="d-flex align-items-center">
+                                            <i class="bi bi-building text-primary me-2"></i>
+                                            <div>
+                                                <div class="fw-bold"><?= htmlspecialchars($tariff['provider_name'] ?: 'Nicht angegeben') ?></div>
+                                                <small class="text-muted"><?= htmlspecialchars($tariff['tariff_name'] ?: 'Standard') ?></small>
+                                            </div>
+                                        </div>
                                     </td>
-                                    
                                     <td>
-                                        <span class="badge bg-primary">
-                                            <?= formatCurrency($tariff['rate_per_kwh']) ?>/kWh
-                                        </span>
+                                        <span class="fw-bold text-energy"><?= number_format($tariff['rate_per_kwh'], 4) ?> €</span>
+                                        <br><small class="text-muted">pro kWh</small>
                                     </td>
-                                    
                                     <td>
-                                        <strong><?= formatCurrency($tariff['monthly_payment']) ?></strong>
-                                        <small class="text-muted">/Monat</small>
+                                        <span class="fw-bold text-warning"><?= number_format($tariff['monthly_payment'], 2) ?> €</span>
+                                        <br><small class="text-muted">pro Monat</small>
                                     </td>
-                                    
                                     <td>
-                                        <?= formatCurrency($tariff['basic_fee']) ?>
-                                        <small class="text-muted">/Monat</small>
+                                        <span class="fw-bold text-info"><?= number_format($tariff['basic_fee'], 2) ?> €</span>
+                                        <br><small class="text-muted">pro Monat</small>
                                     </td>
-                                    
                                     <td>
                                         <div class="btn-group btn-group-sm">
                                             <button class="btn btn-outline-primary" 
-                                                    onclick="editTariff(<?= htmlspecialchars(json_encode($tariff)) ?>)"
-                                                    data-bs-toggle="modal" data-bs-target="#editTariffModal">
+                                                    onclick="editTariff(<?= htmlspecialchars(json_encode($tariff)) ?>)" 
+                                                    title="Bearbeiten">
                                                 <i class="bi bi-pencil"></i>
                                             </button>
                                             
                                             <?php if ($tariff['is_active']): ?>
                                                 <button class="btn btn-outline-warning" 
-                                                        onclick="endTariff(<?= $tariff['id'] ?>, '<?= escape($tariff['tariff_name']) ?>')">
+                                                        onclick="endTariff(<?= $tariff['id'] ?>, '<?= htmlspecialchars($tariff['tariff_name'] ?: 'Tarif') ?>')" 
+                                                        title="Beenden">
                                                     <i class="bi bi-stop-circle"></i>
                                                 </button>
                                             <?php endif; ?>
@@ -454,36 +506,34 @@ include 'includes/navbar.php';
     </div>
 </div>
 
-<!-- Modals -->
-
-<!-- Tarif hinzufügen Modal -->
+<!-- Add Tariff Modal -->
 <div class="modal fade" id="addTariffModal" tabindex="-1">
     <div class="modal-dialog modal-lg">
         <div class="modal-content">
             <form method="POST">
-                <input type="hidden" name="csrf_token" value="<?= $csrfToken ?>">
-                <input type="hidden" name="action" value="add">
-                
                 <div class="modal-header">
                     <h5 class="modal-title">
-                        <i class="bi bi-plus-circle text-success"></i>
-                        Neuen Tarif erstellen
+                        <i class="bi bi-plus-circle text-energy"></i>
+                        Neuen Tarif hinzufügen
                     </h5>
                     <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
                 </div>
-                
                 <div class="modal-body">
+                    <input type="hidden" name="csrf_token" value="<?= $csrfToken ?>">
+                    <input type="hidden" name="action" value="add">
+                    
                     <div class="row">
                         <div class="col-md-6 mb-3">
                             <label class="form-label">Gültig ab *</label>
                             <input type="date" class="form-control" name="valid_from" 
-                                   value="<?= date('Y-m-01') ?>" required>
+                                   value="<?= date('Y-m-d') ?>" required>
                         </div>
                         
                         <div class="col-md-6 mb-3">
                             <label class="form-label">Arbeitspreis (€/kWh) *</label>
                             <input type="number" class="form-control" name="rate_per_kwh" 
-                                   step="0.0001" min="0" placeholder="0.32" required>
+                                   step="0.0001" min="0" required placeholder="z.B. 0.3200">
+                            <div class="form-text">Preis pro Kilowattstunde</div>
                         </div>
                     </div>
                     
@@ -491,13 +541,15 @@ include 'includes/navbar.php';
                         <div class="col-md-6 mb-3">
                             <label class="form-label">Monatlicher Abschlag (€) *</label>
                             <input type="number" class="form-control" name="monthly_payment" 
-                                   step="0.01" min="0" placeholder="85.00" required>
+                                   step="0.01" min="0" required placeholder="z.B. 85.00">
+                            <div class="form-text">Monatliche Vorauszahlung</div>
                         </div>
                         
                         <div class="col-md-6 mb-3">
                             <label class="form-label">Grundgebühr/Monat (€) *</label>
                             <input type="number" class="form-control" name="basic_fee" 
-                                   step="0.01" min="0" placeholder="12.50" required>
+                                   step="0.01" min="0" required placeholder="z.B. 12.50">
+                            <div class="form-text">Monatliche Fixkosten</div>
                         </div>
                     </div>
                     
@@ -505,36 +557,34 @@ include 'includes/navbar.php';
                         <div class="col-md-6 mb-3">
                             <label class="form-label">Anbieter</label>
                             <input type="text" class="form-control" name="provider_name" 
-                                   placeholder="z.B. Stadtwerke" value="Stadtwerke">
+                                   placeholder="z.B. Stadtwerke München">
                         </div>
                         
                         <div class="col-md-6 mb-3">
                             <label class="form-label">Tarifname</label>
                             <input type="text" class="form-control" name="tariff_name" 
-                                   placeholder="z.B. Haushaltsstrom Basic" value="Haushaltsstrom">
+                                   placeholder="z.B. M-Ökostrom Regional">
                         </div>
                     </div>
                     
-                    <div class="mb-3">
-                        <label class="form-label">Kundennummer (optional)</label>
-                        <input type="text" class="form-control" name="customer_number" 
-                               placeholder="Ihre Kundennummer beim Stromanbieter">
-                    </div>
-                    
-                    <div class="mb-3">
-                        <label class="form-label">Notizen (optional)</label>
-                        <textarea class="form-control" name="notes" rows="2"
-                                  placeholder="z.B. Sondertarif, Preisgarantie bis..."></textarea>
+                    <div class="row">
+                        <div class="col-md-6 mb-3">
+                            <label class="form-label">Kundennummer</label>
+                            <input type="text" class="form-control" name="customer_number" 
+                                   placeholder="Ihre Kundennummer">
+                        </div>
+                        
+                        <div class="col-md-6 mb-3">
+                            <label class="form-label">Notizen</label>
+                            <textarea class="form-control" name="notes" rows="2" 
+                                      placeholder="Zusätzliche Informationen..."></textarea>
+                        </div>
                     </div>
                 </div>
-                
                 <div class="modal-footer">
-                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">
-                        Abbrechen
-                    </button>
-                    <button type="submit" class="btn btn-success">
-                        <i class="bi bi-check-circle"></i>
-                        Tarif erstellen
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Abbrechen</button>
+                    <button type="submit" class="btn btn-energy">
+                        <i class="bi bi-check-circle me-1"></i>Tarif hinzufügen
                     </button>
                 </div>
             </form>
@@ -542,24 +592,23 @@ include 'includes/navbar.php';
     </div>
 </div>
 
-<!-- Tarif bearbeiten Modal -->
+<!-- Edit Tariff Modal -->
 <div class="modal fade" id="editTariffModal" tabindex="-1">
     <div class="modal-dialog modal-lg">
         <div class="modal-content">
-            <form method="POST">
-                <input type="hidden" name="csrf_token" value="<?= $csrfToken ?>">
-                <input type="hidden" name="action" value="edit">
-                <input type="hidden" name="tariff_id" id="edit_tariff_id">
-                
+            <form method="POST" id="editForm">
                 <div class="modal-header">
                     <h5 class="modal-title">
-                        <i class="bi bi-pencil text-primary"></i>
+                        <i class="bi bi-pencil text-energy"></i>
                         Tarif bearbeiten
                     </h5>
                     <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
                 </div>
-                
                 <div class="modal-body">
+                    <input type="hidden" name="csrf_token" value="<?= $csrfToken ?>">
+                    <input type="hidden" name="action" value="edit">
+                    <input type="hidden" name="tariff_id" id="edit_tariff_id">
+                    
                     <div class="row">
                         <div class="col-md-6 mb-3">
                             <label class="form-label">Arbeitspreis (€/kWh) *</label>
@@ -604,17 +653,13 @@ include 'includes/navbar.php';
                     
                     <div class="mb-3">
                         <label class="form-label">Notizen</label>
-                        <textarea class="form-control" name="notes" id="edit_notes" rows="2"></textarea>
+                        <textarea class="form-control" name="notes" id="edit_notes" rows="3"></textarea>
                     </div>
                 </div>
-                
                 <div class="modal-footer">
-                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">
-                        Abbrechen
-                    </button>
-                    <button type="submit" class="btn btn-primary">
-                        <i class="bi bi-check-circle"></i>
-                        Änderungen speichern
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Abbrechen</button>
+                    <button type="submit" class="btn btn-energy">
+                        <i class="bi bi-check-circle me-1"></i>Speichern
                     </button>
                 </div>
             </form>
@@ -622,37 +667,36 @@ include 'includes/navbar.php';
     </div>
 </div>
 
-<!-- Tarif beenden Modal -->
+<!-- End Tariff Modal -->
 <div class="modal fade" id="endTariffModal" tabindex="-1">
     <div class="modal-dialog">
         <div class="modal-content">
-            <form method="POST">
-                <input type="hidden" name="csrf_token" value="<?= $csrfToken ?>">
-                <input type="hidden" name="action" value="deactivate">
-                <input type="hidden" name="tariff_id" id="end_tariff_id">
-                
+            <form method="POST" id="endForm">
                 <div class="modal-header">
-                    <h5 class="modal-title">Tarif beenden</h5>
+                    <h5 class="modal-title">
+                        <i class="bi bi-stop-circle text-warning"></i>
+                        Tarif beenden
+                    </h5>
                     <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
                 </div>
-                
                 <div class="modal-body">
-                    <p>Möchten Sie den Tarif <strong id="end_tariff_name"></strong> wirklich beenden?</p>
+                    <input type="hidden" name="csrf_token" value="<?= $csrfToken ?>">
+                    <input type="hidden" name="action" value="deactivate">
+                    <input type="hidden" name="tariff_id" id="end_tariff_id">
+                    
+                    <p>Möchten Sie den Tarif "<strong id="end_tariff_name"></strong>" wirklich beenden?</p>
                     
                     <div class="mb-3">
                         <label class="form-label">Gültig bis</label>
                         <input type="date" class="form-control" name="valid_to" 
                                value="<?= date('Y-m-d') ?>" required>
+                        <div class="form-text">Der Tarif wird ab diesem Datum deaktiviert.</div>
                     </div>
                 </div>
-                
                 <div class="modal-footer">
-                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">
-                        Abbrechen
-                    </button>
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Abbrechen</button>
                     <button type="submit" class="btn btn-warning">
-                        <i class="bi bi-stop-circle"></i>
-                        Tarif beenden
+                        <i class="bi bi-stop-circle me-1"></i>Tarif beenden
                     </button>
                 </div>
             </form>
@@ -660,8 +704,11 @@ include 'includes/navbar.php';
     </div>
 </div>
 
+<?php include 'includes/footer.php'; ?>
+
+<!-- JavaScript -->
 <script>
-// Tarif bearbeiten
+// Tariff bearbeiten
 function editTariff(tariff) {
     document.getElementById('edit_tariff_id').value = tariff.id;
     document.getElementById('edit_rate_per_kwh').value = tariff.rate_per_kwh;
@@ -671,9 +718,12 @@ function editTariff(tariff) {
     document.getElementById('edit_tariff_name').value = tariff.tariff_name || '';
     document.getElementById('edit_customer_number').value = tariff.customer_number || '';
     document.getElementById('edit_notes').value = tariff.notes || '';
+    
+    const modal = new bootstrap.Modal(document.getElementById('editTariffModal'));
+    modal.show();
 }
 
-// Tarif beenden
+// Tariff beenden
 function endTariff(tariffId, tariffName) {
     document.getElementById('end_tariff_id').value = tariffId;
     document.getElementById('end_tariff_name').textContent = tariffName;
@@ -681,6 +731,33 @@ function endTariff(tariffId, tariffName) {
     const modal = new bootstrap.Modal(document.getElementById('endTariffModal'));
     modal.show();
 }
-</script>
 
-<?php include 'includes/footer.php'; ?>
+// Auto-focus und Validierung
+document.addEventListener('DOMContentLoaded', function() {
+    // Add Modal
+    const addModal = document.getElementById('addTariffModal');
+    addModal.addEventListener('shown.bs.modal', function() {
+        document.querySelector('#addTariffModal input[name="rate_per_kwh"]').focus();
+    });
+    
+    // Edit Modal
+    const editModal = document.getElementById('editTariffModal');
+    editModal.addEventListener('shown.bs.modal', function() {
+        document.getElementById('edit_rate_per_kwh').focus();
+    });
+    
+    // Form Validierung
+    const forms = document.querySelectorAll('form');
+    forms.forEach(form => {
+        form.addEventListener('submit', function(e) {
+            const rateField = this.querySelector('input[name="rate_per_kwh"]');
+            if (rateField && (rateField.value <= 0 || isNaN(rateField.value))) {
+                e.preventDefault();
+                alert('Bitte geben Sie einen gültigen Arbeitspreis ein.');
+                rateField.focus();
+                return false;
+            }
+        });
+    });
+});
+</script>

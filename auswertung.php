@@ -1,6 +1,6 @@
 <?php
 // auswertung.php
-// Auswertungen und Charts für Stromverbrauch
+// EINFACHE & SCHÖNE Auswertungen und Charts für Stromverbrauch
 
 require_once 'config/database.php';
 require_once 'config/session.php';
@@ -90,160 +90,71 @@ $yearlyComparison = Database::fetchAll(
 // Aktuelle Statistiken
 $currentYear = date('Y');
 $currentStats = [
-    'current_month' => Database::fetchSingle(
+    'current_month' => Database::fetchOne(
         "SELECT consumption, cost FROM meter_readings 
          WHERE user_id = ? AND YEAR(reading_date) = YEAR(CURDATE()) AND MONTH(reading_date) = MONTH(CURDATE())",
         [$userId]
     ) ?: ['consumption' => 0, 'cost' => 0],
     
-    'year_total' => Database::fetchSingle(
+    'year_total' => Database::fetchOne(
         "SELECT SUM(consumption) as consumption, SUM(cost) as cost 
          FROM meter_readings 
          WHERE user_id = ? AND YEAR(reading_date) = YEAR(CURDATE())",
         [$userId]
     ) ?: ['consumption' => 0, 'cost' => 0],
     
-    'avg_monthly' => Database::fetchSingle(
+    'avg_monthly' => Database::fetchOne(
         "SELECT AVG(consumption) as consumption, AVG(cost) as cost 
          FROM meter_readings 
-         WHERE user_id = ? AND consumption IS NOT NULL",
+         WHERE user_id = ? AND YEAR(reading_date) = YEAR(CURDATE()) AND consumption IS NOT NULL",
         [$userId]
     ) ?: ['consumption' => 0, 'cost' => 0],
     
-    'highest_month' => Database::fetchSingle(
-        "SELECT DATE_FORMAT(reading_date, '%m/%Y') as month, consumption, cost 
+    'highest_month' => Database::fetchOne(
+        "SELECT consumption, cost, DATE_FORMAT(reading_date, '%m/%Y') as month 
          FROM meter_readings 
-         WHERE user_id = ? AND consumption IS NOT NULL
+         WHERE user_id = ? AND YEAR(reading_date) = YEAR(CURDATE()) AND consumption IS NOT NULL
          ORDER BY consumption DESC LIMIT 1",
         [$userId]
-    ) ?: ['month' => '-', 'consumption' => 0, 'cost' => 0],
+    ) ?: ['consumption' => 0, 'cost' => 0, 'month' => '-'],
     
-    'lowest_month' => Database::fetchSingle(
-        "SELECT DATE_FORMAT(reading_date, '%m/%Y') as month, consumption, cost 
+    'lowest_month' => Database::fetchOne(
+        "SELECT consumption, cost, DATE_FORMAT(reading_date, '%m/%Y') as month 
          FROM meter_readings 
-         WHERE user_id = ? AND consumption IS NOT NULL
+         WHERE user_id = ? AND YEAR(reading_date) = YEAR(CURDATE()) AND consumption IS NOT NULL
          ORDER BY consumption ASC LIMIT 1",
         [$userId]
-    ) ?: ['month' => '-', 'consumption' => 0, 'cost' => 0]
+    ) ?: ['consumption' => 0, 'cost' => 0, 'month' => '-']
 ];
-
-// Prognose für nächsten Monat (basierend auf Durchschnitt der letzten 3 Monate)
-$forecast = Database::fetchSingle(
-    "SELECT AVG(consumption) as avg_consumption, AVG(cost) as avg_cost 
-     FROM meter_readings 
-     WHERE user_id = ? AND consumption IS NOT NULL
-     ORDER BY reading_date DESC LIMIT 3",
-    [$userId]
-) ?: ['avg_consumption' => 0, 'avg_cost' => 0];
 
 include 'includes/header.php';
 include 'includes/navbar.php';
 ?>
 
+<!-- Auswertung Content -->
 <div class="container-fluid py-4">
     
     <!-- Header -->
     <div class="row mb-4">
-        <div class="col-md-8">
-            <h1 class="mb-2">
-                <i class="bi bi-bar-chart text-primary"></i>
-                Auswertung & Charts
-            </h1>
-            <p class="text-muted">Visualisierung Ihres Stromverbrauchs und detaillierte Analysen.</p>
-        </div>
-        <div class="col-md-4">
-            <!-- Filter -->
-            <form method="GET" class="d-flex gap-2">
-                <select name="period" class="form-select form-select-sm">
-                    <option value="12months" <?= $selectedPeriod === '12months' ? 'selected' : '' ?>>
-                        Letzte 12 Monate
-                    </option>
-                    <option value="6months" <?= $selectedPeriod === '6months' ? 'selected' : '' ?>>
-                        Letzte 6 Monate
-                    </option>
-                    <option value="year" <?= $selectedPeriod === 'year' ? 'selected' : '' ?>>
-                        Aktuelles Jahr
-                    </option>
-                </select>
-                
-                <?php if (!empty($availableYears) && $selectedPeriod !== 'year'): ?>
-                    <select name="year" class="form-select form-select-sm">
-                        <?php foreach ($availableYears as $yearData): ?>
-                            <option value="<?= $yearData['year'] ?>" 
-                                    <?= $selectedYear == $yearData['year'] ? 'selected' : '' ?>>
-                                <?= $yearData['year'] ?>
-                            </option>
-                        <?php endforeach; ?>
-                    </select>
-                <?php endif; ?>
-                
-                <button type="submit" class="btn btn-sm btn-primary">
-                    <i class="bi bi-funnel"></i>
-                </button>
-            </form>
-        </div>
-    </div>
-    
-    <!-- Schnell-Statistiken -->
-    <div class="row mb-4">
-        <div class="col-md-3 mb-3">
-            <div class="card bg-success text-white">
-                <div class="card-body">
-                    <div class="d-flex justify-content-between">
-                        <div>
-                            <h4><?= formatKwh($currentStats['current_month']['consumption']) ?></h4>
-                            <p class="mb-0">Aktueller Monat</p>
-                        </div>
-                        <div class="stats-icon">
-                            <i class="bi bi-calendar-month"></i>
-                        </div>
+        <div class="col-12">
+            <div class="card glass p-4">
+                <div class="row align-items-center">
+                    <div class="col-md-8">
+                        <h1 class="text-energy mb-2">
+                            <span class="energy-indicator"></span>
+                            <i class="bi bi-bar-chart"></i>
+                            Auswertung & Charts
+                        </h1>
+                        <p class="text-muted mb-0">Analysieren Sie Ihren Stromverbrauch mit interaktiven Diagrammen und Statistiken.</p>
                     </div>
-                </div>
-            </div>
-        </div>
-        
-        <div class="col-md-3 mb-3">
-            <div class="card bg-primary text-white">
-                <div class="card-body">
-                    <div class="d-flex justify-content-between">
-                        <div>
-                            <h4><?= formatKwh($currentStats['year_total']['consumption']) ?></h4>
-                            <p class="mb-0">Jahr <?= $currentYear ?></p>
-                        </div>
-                        <div class="stats-icon">
-                            <i class="bi bi-calendar-year"></i>
-                        </div>
-                    </div>
-                </div>
-            </div>
-        </div>
-        
-        <div class="col-md-3 mb-3">
-            <div class="card bg-warning text-white">
-                <div class="card-body">
-                    <div class="d-flex justify-content-between">
-                        <div>
-                            <h4><?= formatKwh($currentStats['avg_monthly']['consumption']) ?></h4>
-                            <p class="mb-0">⌀ Monatlich</p>
-                        </div>
-                        <div class="stats-icon">
-                            <i class="bi bi-graph-up"></i>
-                        </div>
-                    </div>
-                </div>
-            </div>
-        </div>
-        
-        <div class="col-md-3 mb-3">
-            <div class="card bg-info text-white">
-                <div class="card-body">
-                    <div class="d-flex justify-content-between">
-                        <div>
-                            <h4><?= formatCurrency($currentStats['year_total']['cost']) ?></h4>
-                            <p class="mb-0">Kosten Jahr</p>
-                        </div>
-                        <div class="stats-icon">
-                            <i class="bi bi-cash-coin"></i>
+                    <div class="col-md-4 text-end">
+                        <div class="d-flex gap-2 justify-content-end">
+                            <button class="btn btn-outline-primary btn-sm" onclick="exportCharts()">
+                                <i class="bi bi-download me-1"></i>Export
+                            </button>
+                            <button class="btn btn-energy btn-sm" onclick="refreshCharts()">
+                                <i class="bi bi-arrow-clockwise me-1"></i>Aktualisieren
+                            </button>
                         </div>
                     </div>
                 </div>
@@ -251,48 +162,173 @@ include 'includes/navbar.php';
         </div>
     </div>
     
-    <!-- Charts -->
+    <!-- Filter -->
     <div class="row mb-4">
+        <div class="col-12">
+            <div class="card">
+                <div class="card-body">
+                    <form method="GET" class="row g-3 align-items-end">
+                        <div class="col-md-4">
+                            <label class="form-label">
+                                <i class="bi bi-calendar me-1"></i>Zeitraum
+                            </label>
+                            <select class="form-select" name="period" onchange="this.form.submit()">
+                                <option value="6months" <?= $selectedPeriod === '6months' ? 'selected' : '' ?>>Letzte 6 Monate</option>
+                                <option value="12months" <?= $selectedPeriod === '12months' ? 'selected' : '' ?>>Letzte 12 Monate</option>
+                                <option value="year" <?= $selectedPeriod === 'year' ? 'selected' : '' ?>>Aktuelles Jahr</option>
+                            </select>
+                        </div>
+                        
+                        <?php if (!empty($availableYears) && $selectedPeriod !== 'year'): ?>
+                        <div class="col-md-4">
+                            <label class="form-label">
+                                <i class="bi bi-calendar3 me-1"></i>Jahr
+                            </label>
+                            <select class="form-select" name="year" onchange="this.form.submit()">
+                                <?php foreach ($availableYears as $year): ?>
+                                    <option value="<?= $year['year'] ?>" 
+                                            <?= $selectedYear == $year['year'] ? 'selected' : '' ?>>
+                                        <?= $year['year'] ?>
+                                        <?= $year['year'] == date('Y') ? ' (Aktuell)' : '' ?>
+                                    </option>
+                                <?php endforeach; ?>
+                            </select>
+                        </div>
+                        <?php endif; ?>
+                        
+                        <div class="col-md-4">
+                            <div class="d-flex gap-2">
+                                <button type="submit" class="btn btn-primary">
+                                    <i class="bi bi-funnel"></i> Filter anwenden
+                                </button>
+                                <a href="auswertung.php" class="btn btn-outline-secondary">
+                                    <i class="bi bi-arrow-counterclockwise"></i> Reset
+                                </a>
+                            </div>
+                        </div>
+                    </form>
+                </div>
+            </div>
+        </div>
+    </div>
+    
+    <!-- Statistik Cards -->
+    <div class="row mb-4">
+        <div class="col-md-3 mb-3">
+            <div class="stats-card success">
+                <div class="flex-between mb-3">
+                    <i class="stats-icon bi bi-lightning-charge"></i>
+                    <div class="small">
+                        Aktuell
+                    </div>
+                </div>
+                <h3><?= number_format($currentStats['current_month']['consumption'] ?? 0, 1) ?></h3>
+                <p>kWh diesen Monat</p>
+            </div>
+        </div>
         
-        <!-- Verbrauchstrend -->
+        <div class="col-md-3 mb-3">
+            <div class="stats-card warning">
+                <div class="flex-between mb-3">
+                    <i class="stats-icon bi bi-currency-euro"></i>
+                    <div class="small">
+                        Monat
+                    </div>
+                </div>
+                <h3><?= number_format($currentStats['current_month']['cost'] ?? 0, 2) ?> €</h3>
+                <p>Kosten diesen Monat</p>
+            </div>
+        </div>
+        
+        <div class="col-md-3 mb-3">
+            <div class="stats-card primary">
+                <div class="flex-between mb-3">
+                    <i class="stats-icon bi bi-graph-up"></i>
+                    <div class="small">
+                        <?= date('Y') ?>
+                    </div>
+                </div>
+                <h3><?= number_format($currentStats['year_total']['consumption'] ?? 0, 0) ?></h3>
+                <p>kWh dieses Jahr</p>
+            </div>
+        </div>
+        
+        <div class="col-md-3 mb-3">
+            <div class="stats-card energy">
+                <div class="flex-between mb-3">
+                    <i class="stats-icon bi bi-calculator"></i>
+                    <div class="small">
+                        Durchschnitt
+                    </div>
+                </div>
+                <h3><?= number_format($currentStats['avg_monthly']['consumption'] ?? 0, 1) ?></h3>
+                <p>kWh pro Monat</p>
+            </div>
+        </div>
+    </div>
+
+    <!-- Charts Grid -->
+    <div class="row">
+        
+        <!-- Hauptchart - Verbrauchsverlauf -->
         <div class="col-md-8 mb-4">
             <div class="card">
                 <div class="card-header">
-                    <h5 class="mb-0">
-                        <i class="bi bi-graph-up text-success"></i>
-                        Verbrauchstrend
+                    <div class="flex-between">
+                        <h5 class="mb-0">
+                            <i class="bi bi-graph-up text-energy"></i>
+                            Verbrauchsverlauf
+                        </h5>
                         <small class="text-muted">
                             (<?= $selectedPeriod === 'year' ? 'Aktuelles Jahr' : 
                                    ($selectedYear ? $selectedYear : 'Letzte ' . $monthsBack . ' Monate') ?>)
                         </small>
-                    </h5>
+                    </div>
                 </div>
                 <div class="card-body">
-                    <canvas id="consumptionChart" height="100"></canvas>
+                    <?php if (empty($chartData)): ?>
+                        <div class="text-center py-5">
+                            <i class="bi bi-graph-up display-4 text-muted"></i>
+                            <h5 class="mt-3 text-muted">Keine Daten verfügbar</h5>
+                            <p class="text-muted">Erfassen Sie zuerst einige Zählerstände.</p>
+                            <a href="zaehlerstand.php" class="btn btn-energy">
+                                <i class="bi bi-plus-circle me-2"></i>Zählerstand erfassen
+                            </a>
+                        </div>
+                    <?php else: ?>
+                        <canvas id="consumptionChart" style="height: 300px;"></canvas>
+                    <?php endif; ?>
                 </div>
             </div>
         </div>
         
-        <!-- Kostenverteilung -->
+        <!-- Jahresvergleich -->
         <div class="col-md-4 mb-4">
             <div class="card">
                 <div class="card-header">
                     <h5 class="mb-0">
-                        <i class="bi bi-pie-chart text-warning"></i>
+                        <i class="bi bi-pie-chart text-primary"></i>
                         Jahresvergleich
                     </h5>
                 </div>
                 <div class="card-body">
-                    <canvas id="yearComparisonChart" height="200"></canvas>
+                    <?php if (empty($yearlyComparison)): ?>
+                        <div class="text-center py-4">
+                            <i class="bi bi-pie-chart display-4 text-muted"></i>
+                            <p class="text-muted mt-3">Keine Jahresdaten verfügbar</p>
+                        </div>
+                    <?php else: ?>
+                        <canvas id="yearComparisonChart" style="height: 250px;"></canvas>
+                    <?php endif; ?>
                 </div>
             </div>
         </div>
     </div>
     
-    <!-- Kostentrend und Detailanalyse -->
-    <div class="row mb-4">
+    <!-- Kostentrend und Analyse -->
+    <div class="row">
         
-        <!-- Kostentrend -->
+        <!-- Kostenentwicklung -->
         <div class="col-md-6 mb-4">
             <div class="card">
                 <div class="card-header">
@@ -302,12 +338,19 @@ include 'includes/navbar.php';
                     </h5>
                 </div>
                 <div class="card-body">
-                    <canvas id="costChart" height="120"></canvas>
+                    <?php if (empty($chartData)): ?>
+                        <div class="text-center py-4">
+                            <i class="bi bi-currency-euro display-4 text-muted"></i>
+                            <p class="text-muted mt-3">Keine Kostendaten verfügbar</p>
+                        </div>
+                    <?php else: ?>
+                        <canvas id="costChart" style="height: 250px;"></canvas>
+                    <?php endif; ?>
                 </div>
             </div>
         </div>
         
-        <!-- Verbrauchsanalyse -->
+        <!-- Detailanalyse -->
         <div class="col-md-6 mb-4">
             <div class="card">
                 <div class="card-header">
@@ -321,14 +364,14 @@ include 'includes/navbar.php';
                     <!-- Durchschnittswerte -->
                     <div class="row mb-4">
                         <div class="col-6">
-                            <div class="text-center p-3 bg-light rounded">
-                                <div class="h4 text-success"><?= formatKwh($currentStats['avg_monthly']['consumption']) ?></div>
+                            <div class="text-center p-3 rounded" style="background: var(--gray-50);">
+                                <div class="h4 text-success"><?= number_format($currentStats['avg_monthly']['consumption'] ?? 0, 1) ?> kWh</div>
                                 <small class="text-muted">⌀ Monatlich</small>
                             </div>
                         </div>
                         <div class="col-6">
-                            <div class="text-center p-3 bg-light rounded">
-                                <div class="h4 text-primary"><?= formatCurrency($currentStats['avg_monthly']['cost']) ?></div>
+                            <div class="text-center p-3 rounded" style="background: var(--gray-50);">
+                                <div class="h4 text-primary"><?= number_format($currentStats['avg_monthly']['cost'] ?? 0, 2) ?> €</div>
                                 <small class="text-muted">⌀ Kosten</small>
                             </div>
                         </div>
@@ -339,25 +382,27 @@ include 'includes/navbar.php';
                         <div class="col-12">
                             <h6 class="mb-3">Extreme Werte:</h6>
                             
-                            <div class="d-flex justify-content-between align-items-center mb-2 p-2 bg-danger bg-opacity-10 rounded">
+                            <div class="d-flex justify-content-between align-items-center mb-3 p-3 rounded" 
+                                 style="background: rgba(var(--danger), 0.1);">
                                 <span>
-                                    <i class="bi bi-arrow-up text-danger"></i>
+                                    <i class="bi bi-arrow-up text-danger me-2"></i>
                                     <strong>Höchster Verbrauch:</strong>
                                 </span>
                                 <span>
-                                    <?= formatKwh($currentStats['highest_month']['consumption']) ?>
-                                    <small class="text-muted">(<?= $currentStats['highest_month']['month'] ?>)</small>
+                                    <span class="fw-bold"><?= number_format($currentStats['highest_month']['consumption'] ?? 0, 1) ?> kWh</span>
+                                    <br><small class="text-muted"><?= $currentStats['highest_month']['month'] ?? '-' ?></small>
                                 </span>
                             </div>
                             
-                            <div class="d-flex justify-content-between align-items-center p-2 bg-success bg-opacity-10 rounded">
+                            <div class="d-flex justify-content-between align-items-center p-3 rounded" 
+                                 style="background: rgba(var(--success), 0.1);">
                                 <span>
-                                    <i class="bi bi-arrow-down text-success"></i>
+                                    <i class="bi bi-arrow-down text-success me-2"></i>
                                     <strong>Niedrigster Verbrauch:</strong>
                                 </span>
                                 <span>
-                                    <?= formatKwh($currentStats['lowest_month']['consumption']) ?>
-                                    <small class="text-muted">(<?= $currentStats['lowest_month']['month'] ?>)</small>
+                                    <span class="fw-bold"><?= number_format($currentStats['lowest_month']['consumption'] ?? 0, 1) ?> kWh</span>
+                                    <br><small class="text-muted"><?= $currentStats['lowest_month']['month'] ?? '-' ?></small>
                                 </span>
                             </div>
                         </div>
@@ -367,120 +412,68 @@ include 'includes/navbar.php';
         </div>
     </div>
     
-    <!-- Prognose und Jahresübersicht -->
+    <!-- Jahresvergleich Tabelle -->
+    <?php if (!empty($yearlyComparison)): ?>
     <div class="row">
-        
-        <!-- Prognose -->
-        <div class="col-md-4 mb-4">
+        <div class="col-12">
             <div class="card">
                 <div class="card-header">
                     <h5 class="mb-0">
-                        <i class="bi bi-crystal-ball text-purple"></i>
-                        Prognose
-                    </h5>
-                </div>
-                <div class="card-body">
-                    <div class="alert alert-info">
-                        <h6 class="alert-heading">Nächster Monat:</h6>
-                        <div class="row">
-                            <div class="col-6">
-                                <div class="text-center">
-                                    <div class="h5"><?= formatKwh($forecast['avg_consumption']) ?></div>
-                                    <small>Erwarteter Verbrauch</small>
-                                </div>
-                            </div>
-                            <div class="col-6">
-                                <div class="text-center">
-                                    <div class="h5"><?= formatCurrency($forecast['avg_cost']) ?></div>
-                                    <small>Erwartete Kosten</small>
-                                </div>
-                            </div>
-                        </div>
-                        <hr>
-                        <small class="text-muted">
-                            <i class="bi bi-info-circle"></i>
-                            Basierend auf dem Durchschnitt der letzten 3 Monate
-                        </small>
-                    </div>
-                    
-                    <!-- Energiespar-Tipps -->
-                    <div class="mt-3">
-                        <h6>💡 Energiespar-Tipps:</h6>
-                        <ul class="small text-muted">
-                            <li>LED-Lampen verwenden</li>
-                            <li>Geräte komplett ausschalten</li>
-                            <li>Kühlschrank richtig einstellen</li>
-                            <li>Stoßlüften statt Dauerlüften</li>
-                        </ul>
-                    </div>
-                </div>
-            </div>
-        </div>
-        
-        <!-- Jahresübersicht -->
-        <div class="col-md-8 mb-4">
-            <div class="card">
-                <div class="card-header">
-                    <h5 class="mb-0">
-                        <i class="bi bi-table text-primary"></i>
-                        Jahresübersicht
+                        <i class="bi bi-table text-energy"></i>
+                        Jahresvergleich im Detail
                     </h5>
                 </div>
                 <div class="card-body p-0">
-                    <?php if (empty($yearlyComparison)): ?>
-                        <div class="text-center py-4">
-                            <i class="bi bi-calendar-x display-4 text-muted"></i>
-                            <p class="text-muted mt-2">Keine Jahresvergleichsdaten verfügbar.</p>
-                        </div>
-                    <?php else: ?>
-                        <div class="table-responsive">
-                            <table class="table table-hover mb-0">
-                                <thead class="table-light">
-                                    <tr>
-                                        <th>Jahr</th>
-                                        <th>Ablesungen</th>
-                                        <th>Gesamt-Verbrauch</th>
-                                        <th>Gesamt-Kosten</th>
-                                        <th>⌀ Monatlich</th>
-                                        <th>Min/Max</th>
+                    <div class="table-responsive">
+                        <table class="table table-hover mb-0">
+                            <thead style="background: var(--gray-50);">
+                                <tr>
+                                    <th>Jahr</th>
+                                    <th>Ablesungen</th>
+                                    <th>Gesamtverbrauch</th>
+                                    <th>Gesamtkosten</th>
+                                    <th>⌀ Monatlich</th>
+                                    <th>Min - Max</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                <?php foreach ($yearlyComparison as $year): ?>
+                                    <tr class="<?= $year['year'] == date('Y') ? 'table-success' : '' ?>">
+                                        <td>
+                                            <strong><?= $year['year'] ?></strong>
+                                            <?php if ($year['year'] == date('Y')): ?>
+                                                <span class="badge bg-primary ms-1">Aktuell</span>
+                                            <?php endif; ?>
+                                        </td>
+                                        <td><?= $year['readings_count'] ?></td>
+                                        <td>
+                                            <span class="badge bg-success">
+                                                <?= number_format($year['total_consumption'], 1) ?> kWh
+                                            </span>
+                                        </td>
+                                        <td>
+                                            <strong class="text-warning"><?= number_format($year['total_cost'], 2) ?> €</strong>
+                                        </td>
+                                        <td><?= number_format($year['avg_consumption'], 1) ?> kWh</td>
+                                        <td>
+                                            <small class="text-muted">
+                                                <?= number_format($year['min_consumption'], 1) ?> - 
+                                                <?= number_format($year['max_consumption'], 1) ?> kWh
+                                            </small>
+                                        </td>
                                     </tr>
-                                </thead>
-                                <tbody>
-                                    <?php foreach ($yearlyComparison as $year): ?>
-                                        <tr>
-                                            <td>
-                                                <strong><?= $year['year'] ?></strong>
-                                                <?php if ($year['year'] == date('Y')): ?>
-                                                    <span class="badge bg-primary ms-1">Aktuell</span>
-                                                <?php endif; ?>
-                                            </td>
-                                            <td><?= $year['readings_count'] ?></td>
-                                            <td>
-                                                <span class="badge bg-success">
-                                                    <?= formatKwh($year['total_consumption']) ?>
-                                                </span>
-                                            </td>
-                                            <td>
-                                                <strong><?= formatCurrency($year['total_cost']) ?></strong>
-                                            </td>
-                                            <td><?= formatKwh($year['avg_consumption']) ?></td>
-                                            <td>
-                                                <small class="text-muted">
-                                                    <?= formatKwh($year['min_consumption']) ?> - 
-                                                    <?= formatKwh($year['max_consumption']) ?>
-                                                </small>
-                                            </td>
-                                        </tr>
-                                    <?php endforeach; ?>
-                                </tbody>
-                            </table>
-                        </div>
-                    <?php endif; ?>
+                                <?php endforeach; ?>
+                            </tbody>
+                        </table>
+                    </div>
                 </div>
             </div>
         </div>
     </div>
+    <?php endif; ?>
 </div>
+
+<?php include 'includes/footer.php'; ?>
 
 <!-- JavaScript für Charts -->
 <script>
@@ -488,179 +481,212 @@ include 'includes/navbar.php';
 const chartData = <?= json_encode($chartData) ?>;
 const yearlyData = <?= json_encode($yearlyComparison) ?>;
 
-// Chart-Konfiguration
-Chart.defaults.font.family = "'Segoe UI', Tahoma, Geneva, Verdana, sans-serif";
-Chart.defaults.color = '#6c757d';
+// Chart-Konfiguration mit Energy-Theme
+Chart.defaults.font.family = "'Inter', sans-serif";
+Chart.defaults.color = 'rgb(75, 85, 99)'; // --gray-600
 
-// 1. Verbrauchstrend-Chart
-if (chartData.length > 0) {
-    const consumptionCtx = document.getElementById('consumptionChart').getContext('2d');
-    new Chart(consumptionCtx, {
-        type: 'line',
-        data: {
-            labels: chartData.map(item => item.month_label),
-            datasets: [{
-                label: 'Verbrauch (kWh)',
-                data: chartData.map(item => parseFloat(item.consumption) || 0),
-                borderColor: '#10b981',
-                backgroundColor: 'rgba(16, 185, 129, 0.1)',
-                borderWidth: 3,
-                fill: true,
-                tension: 0.4,
-                pointBackgroundColor: '#10b981',
-                pointBorderColor: '#ffffff',
-                pointBorderWidth: 2,
-                pointRadius: 6
-            }]
-        },
-        options: {
-            responsive: true,
-            maintainAspectRatio: false,
-            plugins: {
-                legend: {
-                    display: false
-                }
+// Farben für konsistentes Design
+const colors = {
+    energy: 'rgb(245, 158, 11)',     // --energy
+    energyLight: 'rgba(245, 158, 11, 0.1)',
+    success: 'rgb(16, 185, 129)',     // --success
+    successLight: 'rgba(16, 185, 129, 0.1)',
+    primary: 'rgb(59, 130, 246)',     // --primary
+    primaryLight: 'rgba(59, 130, 246, 0.1)',
+    warning: 'rgb(249, 115, 22)',     // --warning
+    warningLight: 'rgba(249, 115, 22, 0.1)',
+    gray: 'rgb(156, 163, 175)'        // --gray-400
+};
+
+document.addEventListener('DOMContentLoaded', function() {
+    
+    // 1. Verbrauchsverlauf Chart
+    if (chartData.length > 0) {
+        const consumptionCtx = document.getElementById('consumptionChart').getContext('2d');
+        new Chart(consumptionCtx, {
+            type: 'line',
+            data: {
+                labels: chartData.map(item => item.month_label),
+                datasets: [{
+                    label: 'Verbrauch (kWh)',
+                    data: chartData.map(item => parseFloat(item.consumption) || 0),
+                    borderColor: colors.energy,
+                    backgroundColor: colors.energyLight,
+                    borderWidth: 3,
+                    fill: true,
+                    tension: 0.4,
+                    pointBackgroundColor: colors.energy,
+                    pointBorderColor: '#ffffff',
+                    pointBorderWidth: 2,
+                    pointRadius: 6
+                }]
             },
-            scales: {
-                y: {
-                    beginAtZero: false,
-                    title: {
-                        display: true,
-                        text: 'Verbrauch (kWh)'
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                plugins: {
+                    legend: {
+                        display: false
                     },
-                    grid: {
-                        color: 'rgba(0,0,0,0.1)'
+                    tooltip: {
+                        backgroundColor: 'rgba(0, 0, 0, 0.8)',
+                        titleColor: '#ffffff',
+                        bodyColor: '#ffffff',
+                        borderColor: colors.energy,
+                        borderWidth: 1,
+                        cornerRadius: 8,
+                        callbacks: {
+                            label: function(context) {
+                                return `Verbrauch: ${context.parsed.y.toFixed(1)} kWh`;
+                            }
+                        }
                     }
                 },
-                x: {
-                    grid: {
-                        display: false
-                    }
-                }
-            },
-            elements: {
-                point: {
-                    hoverRadius: 8
-                }
-            }
-        }
-    });
-}
-
-// 2. Jahresvergleich-Donut-Chart
-if (yearlyData.length > 0) {
-    const yearCtx = document.getElementById('yearComparisonChart').getContext('2d');
-    new Chart(yearCtx, {
-        type: 'doughnut',
-        data: {
-            labels: yearlyData.map(item => item.year.toString()),
-            datasets: [{
-                data: yearlyData.map(item => parseFloat(item.total_consumption)),
-                backgroundColor: [
-                    '#3b82f6',
-                    '#10b981', 
-                    '#f59e0b',
-                    '#ef4444',
-                    '#8b5cf6',
-                    '#06b6d4'
-                ],
-                borderWidth: 2,
-                borderColor: '#ffffff'
-            }]
-        },
-        options: {
-            responsive: true,
-            maintainAspectRatio: false,
-            plugins: {
-                legend: {
-                    position: 'bottom',
-                    labels: {
-                        padding: 20,
-                        usePointStyle: true
-                    }
-                }
-            }
-        }
-    });
-}
-
-// 3. Kosten-Chart
-if (chartData.length > 0) {
-    const costCtx = document.getElementById('costChart').getContext('2d');
-    new Chart(costCtx, {
-        type: 'bar',
-        data: {
-            labels: chartData.map(item => item.month_label),
-            datasets: [{
-                label: 'Kosten (€)',
-                data: chartData.map(item => parseFloat(item.cost) || 0),
-                backgroundColor: 'rgba(245, 158, 11, 0.8)',
-                borderColor: '#f59e0b',
-                borderWidth: 1
-            }]
-        },
-        options: {
-            responsive: true,
-            maintainAspectRatio: false,
-            plugins: {
-                legend: {
-                    display: false
-                }
-            },
-            scales: {
-                y: {
-                    beginAtZero: true,
-                    title: {
-                        display: true,
-                        text: 'Kosten (€)'
+                scales: {
+                    y: {
+                        beginAtZero: true,
+                        grid: {
+                            color: 'rgba(0, 0, 0, 0.1)'
+                        },
+                        ticks: {
+                            callback: function(value) {
+                                return value + ' kWh';
+                            }
+                        }
                     },
-                    grid: {
-                        color: 'rgba(0,0,0,0.1)'
+                    x: {
+                        grid: {
+                            display: false
+                        }
+                    }
+                }
+            }
+        });
+    }
+
+    // 2. Jahresvergleich Chart (Doughnut)
+    if (yearlyData.length > 0) {
+        const yearCtx = document.getElementById('yearComparisonChart').getContext('2d');
+        const chartColors = [colors.energy, colors.primary, colors.success, colors.warning, colors.gray];
+        
+        new Chart(yearCtx, {
+            type: 'doughnut',
+            data: {
+                labels: yearlyData.map(item => item.year.toString()),
+                datasets: [{
+                    data: yearlyData.map(item => parseFloat(item.total_consumption) || 0),
+                    backgroundColor: chartColors.slice(0, yearlyData.length),
+                    borderWidth: 2,
+                    borderColor: '#ffffff'
+                }]
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                plugins: {
+                    legend: {
+                        position: 'bottom',
+                        labels: {
+                            padding: 20,
+                            usePointStyle: true
+                        }
+                    },
+                    tooltip: {
+                        backgroundColor: 'rgba(0, 0, 0, 0.8)',
+                        titleColor: '#ffffff',
+                        bodyColor: '#ffffff',
+                        cornerRadius: 8,
+                        callbacks: {
+                            label: function(context) {
+                                const value = context.parsed;
+                                const total = context.dataset.data.reduce((a, b) => a + b, 0);
+                                const percentage = ((value / total) * 100).toFixed(1);
+                                return `${context.label}: ${value.toFixed(1)} kWh (${percentage}%)`;
+                            }
+                        }
+                    }
+                }
+            }
+        });
+    }
+
+    // 3. Kostenentwicklung Chart
+    if (chartData.length > 0) {
+        const costCtx = document.getElementById('costChart').getContext('2d');
+        new Chart(costCtx, {
+            type: 'bar',
+            data: {
+                labels: chartData.map(item => item.month_label),
+                datasets: [{
+                    label: 'Kosten (€)',
+                    data: chartData.map(item => parseFloat(item.cost) || 0),
+                    backgroundColor: colors.successLight,
+                    borderColor: colors.success,
+                    borderWidth: 2,
+                    borderRadius: 4,
+                    borderSkipped: false
+                }]
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                plugins: {
+                    legend: {
+                        display: false
+                    },
+                    tooltip: {
+                        backgroundColor: 'rgba(0, 0, 0, 0.8)',
+                        titleColor: '#ffffff',
+                        bodyColor: '#ffffff',
+                        borderColor: colors.success,
+                        borderWidth: 1,
+                        cornerRadius: 8,
+                        callbacks: {
+                            label: function(context) {
+                                return `Kosten: ${context.parsed.y.toFixed(2)} €`;
+                            }
+                        }
                     }
                 },
-                x: {
-                    grid: {
-                        display: false
+                scales: {
+                    y: {
+                        beginAtZero: true,
+                        grid: {
+                            color: 'rgba(0, 0, 0, 0.1)'
+                        },
+                        ticks: {
+                            callback: function(value) {
+                                return value + ' €';
+                            }
+                        }
+                    },
+                    x: {
+                        grid: {
+                            display: false
+                        }
                     }
                 }
             }
-        }
-    });
-}
-
-// Chart-Updates bei Resize
-window.addEventListener('resize', function() {
-    Chart.helpers.each(Chart.instances, function(instance) {
-        instance.resize();
-    });
+        });
+    }
 });
 
-// Export-Funktionen
-function exportChart(chartId, filename) {
-    const canvas = document.getElementById(chartId);
-    const url = canvas.toDataURL('image/png');
-    const link = document.createElement('a');
-    link.download = filename + '.png';
-    link.href = url;
-    link.click();
+// Utility Functions
+function refreshCharts() {
+    // Seite neu laden für aktuelle Daten
+    window.location.reload();
 }
 
-// Daten-Export (CSV)
-function exportData() {
-    let csv = 'Monat,Zählerstand,Verbrauch,Kosten,Preis pro kWh\n';
-    
-    chartData.forEach(function(item) {
-        csv += `${item.month_label},${item.meter_value},${item.consumption || 0},${item.cost || 0},${item.rate_per_kwh || 0}\n`;
+function exportCharts() {
+    // Einfacher Chart-Export (kann erweitert werden)
+    alert('Export-Funktion wird in einer zukünftigen Version implementiert.');
+}
+
+// Print-optimierte Styles
+window.addEventListener('beforeprint', function() {
+    // Charts für Druck optimieren
+    Chart.helpers.each(Chart.instances, function(chart) {
+        chart.resize();
     });
-    
-    const blob = new Blob([csv], { type: 'text/csv' });
-    const url = window.URL.createObjectURL(blob);
-    const link = document.createElement('a');
-    link.download = 'stromverbrauch_export.csv';
-    link.href = url;
-    link.click();
-    window.URL.revokeObjectURL(url);
-}
+});
 </script>
-
-<?php include 'includes/footer.php'; ?>

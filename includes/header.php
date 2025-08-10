@@ -19,7 +19,7 @@
     <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.2/font/bootstrap-icons.css" rel="stylesheet">
     
     <!-- EINE einfache CSS-Datei -->
-    <link href="css/simple-design.css" rel="stylesheet">
+    <link href="css/style.css" rel="stylesheet">
     
     <!-- Chart.js für Diagramme -->
     <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.js" defer></script>
@@ -86,3 +86,6 @@
             title="Theme wechseln">
         <i id="themeIcon" class="bi bi-moon-stars"></i>
     </button>
+
+    <!-- Main Content Wrapper für Sticky Footer -->
+    <main class="main-content">

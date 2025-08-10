@@ -61,6 +61,62 @@ if (isset($_GET['error']) && $_GET['error'] === 'login_required') {
 
     <!-- Login-spezifische Styles -->
     <style>
+        /* CSS-Variablen für Login-Seite definieren */
+        :root {
+            /* Hauptfarben */
+            --primary: #3b82f6;
+            --energy: #f59e0b;
+            --success: #10b981;
+            --warning: #f59e0b;
+            --danger: #ef4444;
+
+            /* Grautöne */
+            --white: #ffffff;
+            --gray-50: #f9fafb;
+            --gray-100: #f3f4f6;
+            --gray-200: #e5e7eb;
+            --gray-300: #d1d5db;
+            --gray-400: #9ca3af;
+            --gray-500: #6b7280;
+            --gray-600: #4b5563;
+            --gray-700: #374151;
+            --gray-800: #1f2937;
+            --gray-900: #111827;
+
+            /* Schatten und Effekte */
+            --shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+            --shadow-lg: 0 10px 25px rgba(0, 0, 0, 0.15);
+            --shadow-xl: 0 25px 50px rgba(0, 0, 0, 0.25);
+
+            /* Radius */
+            --radius-lg: 8px;
+            --radius-xl: 12px;
+            --radius-3xl: 24px;
+
+            /* Spacing */
+            --space-3: 0.75rem;
+            --space-4: 1rem;
+            --space-6: 1.5rem;
+            --space-8: 2rem;
+
+            /* Transitions */
+            --transition-normal: 0.3s;
+            --transition-smooth: 0.5s;
+
+            /* Gradients */
+            --gradient-energy: linear-gradient(135deg, var(--energy) 0%, #d97706 100%);
+
+            /* Text Sizes */
+            --text-base: 1rem;
+            --text-xl: 1.25rem;
+            --text-2xl: 1.5rem;
+
+            /* Font Weights */
+            --font-medium: 500;
+            --font-semibold: 600;
+            --font-bold: 700;
+        }
+
         body {
             background: linear-gradient(135deg, var(--gray-100) 0%, var(--gray-200) 100%);
             min-height: 100vh;
@@ -69,6 +125,7 @@ if (isset($_GET['error']) && $_GET['error'] === 'login_required') {
             justify-content: center;
             position: relative;
             overflow: hidden;
+            color: var(--gray-700);
         }
 
         /* Animated Background Elements */
@@ -238,27 +295,6 @@ if (isset($_GET['error']) && $_GET['error'] === 'login_required') {
             border-top: 1px solid var(--gray-200);
         }
 
-        .demo-credentials {
-            background: var(--white);
-            border: 1px solid var(--gray-200);
-            border-radius: var(--radius-lg);
-            padding: var(--space-4);
-            margin-bottom: var(--space-4);
-        }
-
-        .demo-credentials h6 {
-            color: var(--energy);
-            margin-bottom: var(--space-2);
-        }
-
-        .demo-credentials code {
-            background: var(--gray-100);
-            color: var(--gray-700);
-            padding: 2px 6px;
-            border-radius: 4px;
-            font-size: 0.875rem;
-        }
-
         .system-status {
             display: flex;
             justify-content: center;
@@ -340,11 +376,6 @@ if (isset($_GET['error']) && $_GET['error'] === 'login_required') {
         }
 
         [data-theme="dark"] .login-footer {
-            background: var(--gray-700);
-            border-color: var(--gray-600);
-        }
-
-        [data-theme="dark"] .demo-credentials {
             background: var(--gray-700);
             border-color: var(--gray-600);
         }

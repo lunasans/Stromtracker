@@ -1,6 +1,6 @@
 <?php
 // index.php
-// EINFACHE & SCHÖNE Login-Seite für Stromtracker
+// EINFACHE & SCHÖNE Login-Seite für Stromtracker mit Theme-Toggle
 
 require_once 'config/database.php';
 require_once 'config/session.php';
@@ -61,7 +61,6 @@ if (isset($_GET['error']) && $_GET['error'] === 'login_required') {
 
     <!-- Login-spezifische Styles -->
     <style>
-        /* CSS-Variablen für Login-Seite definieren */
         :root {
             /* Hauptfarben */
             --primary: #3b82f6;
@@ -69,7 +68,7 @@ if (isset($_GET['error']) && $_GET['error'] === 'login_required') {
             --success: #10b981;
             --warning: #f59e0b;
             --danger: #ef4444;
-
+            
             /* Grautöne */
             --white: #ffffff;
             --gray-50: #f9fafb;
@@ -82,42 +81,37 @@ if (isset($_GET['error']) && $_GET['error'] === 'login_required') {
             --gray-700: #374151;
             --gray-800: #1f2937;
             --gray-900: #111827;
-
-            /* Schatten und Effekte */
+            
+            /* Schatten */
             --shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
             --shadow-lg: 0 10px 25px rgba(0, 0, 0, 0.15);
-            --shadow-xl: 0 25px 50px rgba(0, 0, 0, 0.25);
-
-            /* Radius */
-            --radius-lg: 8px;
-            --radius-xl: 12px;
-            --radius-3xl: 24px;
-
-            /* Spacing */
+            
+            /* Abstände */
+            --space-2: 0.5rem;
             --space-3: 0.75rem;
             --space-4: 1rem;
             --space-6: 1.5rem;
             --space-8: 2rem;
-
-            /* Transitions */
-            --transition-normal: 0.3s;
-            --transition-smooth: 0.5s;
-
-            /* Gradients */
-            --gradient-energy: linear-gradient(135deg, var(--energy) 0%, #d97706 100%);
-
-            /* Text Sizes */
+            
+            /* Radius */
+            --radius-lg: 8px;
+            --radius-xl: 12px;
+            --radius-3xl: 24px;
+            --radius-full: 50%;
+            
+            /* Text */
             --text-base: 1rem;
             --text-xl: 1.25rem;
             --text-2xl: 1.5rem;
-
-            /* Font Weights */
+            
+            /* Font */
             --font-medium: 500;
             --font-semibold: 600;
             --font-bold: 700;
         }
 
         body {
+            font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
             background: linear-gradient(135deg, var(--gray-100) 0%, var(--gray-200) 100%);
             min-height: 100vh;
             display: flex;
@@ -125,7 +119,10 @@ if (isset($_GET['error']) && $_GET['error'] === 'login_required') {
             justify-content: center;
             position: relative;
             overflow: hidden;
-            color: var(--gray-700);
+        }
+
+        [data-theme="dark"] body {
+            background: linear-gradient(135deg, var(--gray-800) 0%, var(--gray-900) 100%);
         }
 
         /* Animated Background Elements */
@@ -147,6 +144,11 @@ if (isset($_GET['error']) && $_GET['error'] === 'login_required') {
             animation: float 8s ease-in-out infinite;
         }
 
+        [data-theme="dark"] .bg-elements::before,
+        [data-theme="dark"] .bg-elements::after {
+            opacity: 0.05;
+        }
+
         .bg-elements::before {
             width: 300px;
             height: 300px;
@@ -164,12 +166,9 @@ if (isset($_GET['error']) && $_GET['error'] === 'login_required') {
         }
 
         @keyframes float {
-
-            0%,
-            100% {
+            0%, 100% {
                 transform: translateY(0px) rotate(0deg);
             }
-
             50% {
                 transform: translateY(-30px) rotate(180deg);
             }
@@ -189,10 +188,10 @@ if (isset($_GET['error']) && $_GET['error'] === 'login_required') {
             background: var(--white);
             border: none;
             border-radius: var(--radius-3xl);
-            box-shadow: var(--shadow-xl);
+            box-shadow: var(--shadow-lg);
             overflow: hidden;
             backdrop-filter: blur(10px);
-            transition: var(--transition-smooth);
+            transition: all 0.3s ease;
         }
 
         .login-card:hover {
@@ -201,7 +200,7 @@ if (isset($_GET['error']) && $_GET['error'] === 'login_required') {
         }
 
         .login-header {
-            background: var(--gradient-energy);
+            background: linear-gradient(135deg, var(--energy), #d97706);
             color: white;
             padding: var(--space-8) var(--space-6);
             text-align: center;
@@ -250,7 +249,7 @@ if (isset($_GET['error']) && $_GET['error'] === 'login_required') {
             line-height: 1.25;
             height: auto;
             background: var(--gray-50);
-            transition: all var(--transition-normal) ease;
+            transition: all 0.3s ease;
         }
 
         .form-floating>.form-control:focus {
@@ -266,19 +265,19 @@ if (isset($_GET['error']) && $_GET['error'] === 'login_required') {
         }
 
         .btn-login {
-            background: var(--gradient-energy);
+            background: linear-gradient(135deg, var(--energy), #d97706);
             border: none;
             color: white;
             font-weight: var(--font-semibold);
             padding: var(--space-4) var(--space-6);
             border-radius: var(--radius-lg);
             font-size: var(--text-base);
-            transition: var(--transition-smooth);
+            transition: all 0.3s ease;
             width: 100%;
         }
 
         .btn-login:hover {
-            background: linear-gradient(135deg, var(--energy-500) 0%, var(--energy-600) 50%, var(--energy-700) 100%);
+            background: linear-gradient(135deg, #d97706, #b45309);
             transform: translateY(-2px);
             box-shadow: var(--shadow-lg);
             color: white;
@@ -293,6 +292,27 @@ if (isset($_GET['error']) && $_GET['error'] === 'login_required') {
             padding: var(--space-6);
             text-align: center;
             border-top: 1px solid var(--gray-200);
+        }
+
+        .demo-credentials {
+            background: var(--white);
+            border: 1px solid var(--gray-200);
+            border-radius: var(--radius-lg);
+            padding: var(--space-4);
+            margin-bottom: var(--space-4);
+        }
+
+        .demo-credentials h6 {
+            color: var(--energy);
+            margin-bottom: var(--space-2);
+        }
+
+        .demo-credentials code {
+            background: var(--gray-100);
+            color: var(--gray-700);
+            padding: 2px 6px;
+            border-radius: 4px;
+            font-size: 0.875rem;
         }
 
         .system-status {
@@ -321,21 +341,6 @@ if (isset($_GET['error']) && $_GET['error'] === 'login_required') {
             font-size: 12px;
         }
 
-        .theme-toggle-btn {
-            width: 50px;
-            height: 50px;
-            border-radius: 50%;
-            position: fixed;
-            top: 20px;
-            right: 20px;
-        }
-
-        .theme-toggle-btn:hover {
-            transform: scale(1.1);
-            background: var(--energy);
-            color: white;
-        }
-
         /* Alert Styles */
         .alert {
             border: none;
@@ -348,6 +353,69 @@ if (isset($_GET['error']) && $_GET['error'] === 'login_required') {
             background: rgba(239, 68, 68, 0.1);
             color: var(--danger);
             border-left: 4px solid var(--danger);
+        }
+
+        /* Theme Toggle Button */
+        .theme-toggle-container {
+            position: fixed;
+            top: 20px;
+            right: 20px;
+            z-index: 1000;
+        }
+
+        .theme-toggle-btn {
+            width: 50px;
+            height: 50px;
+            border-radius: 50%;
+            background: var(--white);
+            border: 2px solid var(--gray-200);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 1.2rem;
+            color: var(--gray-700);
+            cursor: pointer;
+            transition: all 0.3s ease;
+            box-shadow: var(--shadow-lg);
+        }
+
+        .theme-toggle-btn:hover {
+            transform: scale(1.1);
+            box-shadow: 0 15px 35px rgba(0, 0, 0, 0.2);
+            background: var(--energy);
+            color: white;
+            border-color: var(--energy);
+        }
+
+        [data-theme="dark"] .theme-toggle-btn {
+            background: var(--gray-800);
+            border-color: var(--gray-600);
+            color: var(--gray-300);
+        }
+
+        [data-theme="dark"] .theme-toggle-btn:hover {
+            background: var(--energy);
+            color: white;
+            border-color: var(--energy);
+        }
+
+        /* Theme transition animation */
+        * {
+            transition: background-color 0.3s ease, color 0.3s ease, border-color 0.3s ease;
+        }
+
+        .theme-toggle-btn i {
+            transition: transform 0.3s ease;
+        }
+
+        .theme-toggle-btn:active i {
+            transform: rotate(180deg);
+        }
+
+        /* Focus states for accessibility */
+        .theme-toggle-btn:focus {
+            outline: 2px solid var(--energy);
+            outline-offset: 2px;
         }
 
         /* Mobile Optimizations */
@@ -372,13 +440,20 @@ if (isset($_GET['error']) && $_GET['error'] === 'login_required') {
                 flex-direction: column;
                 gap: var(--space-3);
             }
+
+            .theme-toggle-container {
+                top: 15px;
+                right: 15px;
+            }
+
+            .theme-toggle-btn {
+                width: 40px;
+                height: 40px;
+                font-size: 1rem;
+            }
         }
 
         /* Dark Theme Support */
-        [data-theme="dark"] body {
-            background: linear-gradient(135deg, var(--gray-800) 0%, var(--gray-900) 100%);
-        }
-
         [data-theme="dark"] .login-card {
             background: var(--gray-800);
             color: var(--gray-100);
@@ -397,6 +472,40 @@ if (isset($_GET['error']) && $_GET['error'] === 'login_required') {
         [data-theme="dark"] .login-footer {
             background: var(--gray-700);
             border-color: var(--gray-600);
+        }
+
+        [data-theme="dark"] .demo-credentials {
+            background: var(--gray-700);
+            border-color: var(--gray-600);
+            color: var(--gray-100);
+        }
+
+        [data-theme="dark"] .demo-credentials code {
+            background: var(--gray-600);
+            color: var(--gray-200);
+        }
+
+        /* Energy Indicator Animation */
+        .energy-indicator {
+            width: 12px;
+            height: 12px;
+            border-radius: 50%;
+            background-color: var(--energy);
+            animation: pulse 2s infinite;
+            display: inline-block;
+            margin-right: var(--space-2);
+        }
+
+        @keyframes pulse {
+            0% { 
+                box-shadow: 0 0 0 0 rgba(245, 158, 11, 0.7); 
+            }
+            70% { 
+                box-shadow: 0 0 0 10px rgba(245, 158, 11, 0); 
+            }
+            100% { 
+                box-shadow: 0 0 0 0 rgba(245, 158, 11, 0); 
+            }
         }
     </style>
 </head>
@@ -417,7 +526,7 @@ if (isset($_GET['error']) && $_GET['error'] === 'login_required') {
                     Stromtracker
                 </div>
                 <div class="brand-subtitle">
-                    Stromtracker
+                    Stromverbrauch intelligent verwalten
                 </div>
             </div>
 
@@ -495,12 +604,52 @@ if (isset($_GET['error']) && $_GET['error'] === 'login_required') {
         </div>
     </div>
 
+    <!-- Theme Toggle Button -->
+    <div class="theme-toggle-container">
+        <button class="theme-toggle-btn" onclick="toggleTheme()" title="Theme wechseln">
+            <i id="themeIcon" class="bi bi-moon-stars"></i>
+        </button>
+    </div>
+
     <!-- Bootstrap JavaScript -->
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/js/bootstrap.bundle.min.js"></script>
 
     <!-- Login Scripts -->
     <script>
-        document.addEventListener('DOMContentLoaded', function () {
+        // Theme detection and application
+        const savedTheme = localStorage.getItem('theme') || 'light';
+        document.documentElement.setAttribute('data-theme', savedTheme);
+
+        // Theme toggle function
+        function toggleTheme() {
+            const current = document.documentElement.getAttribute('data-theme') || 'light';
+            const newTheme = current === 'dark' ? 'light' : 'dark';
+            
+            document.documentElement.setAttribute('data-theme', newTheme);
+            localStorage.setItem('theme', newTheme);
+            
+            // Update icon
+            updateThemeIcon(newTheme);
+            
+            console.log('Theme switched to:', newTheme);
+        }
+
+        // Update theme icon
+        function updateThemeIcon(theme) {
+            const themeIcon = document.getElementById('themeIcon');
+            if (themeIcon) {
+                themeIcon.className = theme === 'dark' ? 'bi bi-sun' : 'bi bi-moon-stars';
+            }
+        }
+
+        // Initialize theme icon on load
+        document.addEventListener('DOMContentLoaded', function() {
+            console.log('DOM loaded, initializing theme...');
+            updateThemeIcon(savedTheme);
+            
+            // Check if button exists
+            const toggleBtn = document.querySelector('.theme-toggle-btn');
+            console.log('Theme toggle button found:', !!toggleBtn);
 
             // Auto-focus auf erstes leeres Feld
             const emailField = document.getElementById('email');
@@ -559,10 +708,6 @@ if (isset($_GET['error']) && $_GET['error'] === 'login_required') {
                 }, 5000);
             });
         });
-
-        // Theme detection and application
-        const savedTheme = localStorage.getItem('theme') || 'light';
-        document.documentElement.setAttribute('data-theme', savedTheme);
 
         // Loading animation for submit button
         document.querySelector('form').addEventListener('submit', function () {

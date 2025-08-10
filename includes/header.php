@@ -76,16 +76,6 @@
 
 <body>
     <!-- Einfacher Theme Toggle Button -->
-    <button onclick="toggleTheme()" 
-            style="position: fixed; top: 20px; right: 20px; z-index: 1060; 
-                   width: 44px; height: 44px; border-radius: 50%; 
-                   background: var(--white); border: 2px solid var(--gray-200); 
-                   color: var(--energy); cursor: pointer; 
-                   display: flex; align-items: center; justify-content: center;
-                   box-shadow: var(--shadow);"
-            title="Theme wechseln">
-        <i id="themeIcon" class="bi bi-moon-stars"></i>
-    </button>
-
+    
     <!-- Main Content Wrapper für Sticky Footer -->
     <main class="main-content">

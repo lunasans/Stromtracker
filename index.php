@@ -321,6 +321,21 @@ if (isset($_GET['error']) && $_GET['error'] === 'login_required') {
             font-size: 12px;
         }
 
+        .theme-toggle-btn {
+            width: 50px;
+            height: 50px;
+            border-radius: 50%;
+            position: fixed;
+            top: 20px;
+            right: 20px;
+        }
+
+        .theme-toggle-btn:hover {
+            transform: scale(1.1);
+            background: var(--energy);
+            color: white;
+        }
+
         /* Alert Styles */
         .alert {
             border: none;
@@ -360,6 +375,10 @@ if (isset($_GET['error']) && $_GET['error'] === 'login_required') {
         }
 
         /* Dark Theme Support */
+        [data-theme="dark"] body {
+            background: linear-gradient(135deg, var(--gray-800) 0%, var(--gray-900) 100%);
+        }
+
         [data-theme="dark"] .login-card {
             background: var(--gray-800);
             color: var(--gray-100);

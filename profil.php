@@ -1,6 +1,6 @@
 <?php
 // profil.php
-// EINFACHE & SCHÖNE Profil-Verwaltung
+// EINFACHE & SCHÖNE Profil-Verwaltung mit Profilbild-Upload
 
 require_once 'config/database.php';
 require_once 'config/session.php';
@@ -15,6 +15,304 @@ $userId = Auth::getUserId();
 // CSRF-Token generieren
 $csrfToken = Auth::generateCSRFToken();
 
+// =============================================================================
+// PROFILBILD UPLOAD-HANDLER
+// =============================================================================
+
+class ProfileImageHandler {
+    
+    private static $uploadDir = 'uploads/profile/';
+    private static $maxFileSize = 2 * 1024 * 1024; // 2MB
+    private static $allowedTypes = ['image/jpeg', 'image/png', 'image/gif'];
+    private static $allowedExtensions = ['jpg', 'jpeg', 'png', 'gif'];
+    
+    /**
+     * Upload und verarbeite Profilbild
+     */
+    public static function handleUpload($file, $userId) {
+        
+        // Upload-Ordner erstellen falls nicht vorhanden
+        if (!is_dir(self::$uploadDir)) {
+            mkdir(self::$uploadDir, 0755, true);
+        }
+        
+        // .htaccess für Sicherheit erstellen
+        self::createHtaccess();
+        
+        // Validierung
+        $validation = self::validateUpload($file);
+        if ($validation !== true) {
+            return ['success' => false, 'error' => $validation];
+        }
+        
+        // Eindeutigen Dateinamen generieren
+        $extension = strtolower(pathinfo($file['name'], PATHINFO_EXTENSION));
+        $filename = 'profile_' . $userId . '_' . time() . '.' . $extension;
+        $filepath = self::$uploadDir . $filename;
+        
+        // Altes Profilbild löschen
+        self::deleteOldImage($userId);
+        
+        // Datei hochladen
+        if (!move_uploaded_file($file['tmp_name'], $filepath)) {
+            return ['success' => false, 'error' => 'Fehler beim Speichern der Datei.'];
+        }
+        
+        // Bild verkleinern und optimieren
+        $processResult = self::processImage($filepath);
+        if (!$processResult) {
+            unlink($filepath);
+            return ['success' => false, 'error' => 'Fehler beim Verarbeiten des Bildes.'];
+        }
+        
+        // In Datenbank speichern
+        $dbResult = Database::update('users', [
+            'profile_image' => $filename
+        ], 'id = ?', [$userId]);
+        
+        if ($dbResult) {
+            return ['success' => true, 'filename' => $filename];
+        } else {
+            unlink($filepath);
+            return ['success' => false, 'error' => 'Fehler beim Speichern in der Datenbank.'];
+        }
+    }
+    
+    /**
+     * Validiere Upload
+     */
+    private static function validateUpload($file) {
+        
+        // Allgemeine Upload-Fehler
+        if ($file['error'] !== UPLOAD_ERR_OK) {
+            return 'Upload-Fehler: ' . self::getUploadErrorMessage($file['error']);
+        }
+        
+        // Dateigröße prüfen
+        if ($file['size'] > self::$maxFileSize) {
+            return 'Datei ist zu groß. Maximum: ' . (self::$maxFileSize / 1024 / 1024) . 'MB';
+        }
+        
+        // Dateityp prüfen
+        if (!in_array($file['type'], self::$allowedTypes)) {
+            return 'Nicht erlaubter Dateityp. Erlaubt: JPG, PNG, GIF';
+        }
+        
+        // Dateiendung prüfen
+        $extension = strtolower(pathinfo($file['name'], PATHINFO_EXTENSION));
+        if (!in_array($extension, self::$allowedExtensions)) {
+            return 'Nicht erlaubte Dateiendung.';
+        }
+        
+        // Bild-Validierung (echtes Bild?)
+        $imageInfo = getimagesize($file['tmp_name']);
+        if ($imageInfo === false) {
+            return 'Datei ist kein gültiges Bild.';
+        }
+        
+        return true;
+    }
+    
+    /**
+     * Bild verarbeiten und optimieren
+     */
+    private static function processImage($filepath) {
+        
+        $imageInfo = getimagesize($filepath);
+        $width = $imageInfo[0];
+        $height = $imageInfo[1];
+        $type = $imageInfo[2];
+        
+        // Zielgröße
+        $targetSize = 200;
+        
+        // Bild nur verkleinern wenn größer als Ziel
+        if ($width <= $targetSize && $height <= $targetSize) {
+            return true;
+        }
+        
+        // Seitenverhältnis berechnen
+        $ratio = min($targetSize / $width, $targetSize / $height);
+        $newWidth = intval($width * $ratio);
+        $newHeight = intval($height * $ratio);
+        
+        // Quell-Bild laden
+        switch ($type) {
+            case IMAGETYPE_JPEG:
+                $source = imagecreatefromjpeg($filepath);
+                break;
+            case IMAGETYPE_PNG:
+                $source = imagecreatefrompng($filepath);
+                break;
+            case IMAGETYPE_GIF:
+                $source = imagecreatefromgif($filepath);
+                break;
+            default:
+                return false;
+        }
+        
+        if (!$source) {
+            return false;
+        }
+        
+        // Neues Bild erstellen
+        $target = imagecreatetruecolor($newWidth, $newHeight);
+        
+        // Transparenz für PNG/GIF erhalten
+        if ($type == IMAGETYPE_PNG || $type == IMAGETYPE_GIF) {
+            imagealphablending($target, false);
+            imagesavealpha($target, true);
+            $transparent = imagecolorallocatealpha($target, 0, 0, 0, 127);
+            imagefill($target, 0, 0, $transparent);
+        }
+        
+        // Bild skalieren
+        imagecopyresampled($target, $source, 0, 0, 0, 0, $newWidth, $newHeight, $width, $height);
+        
+        // Speichern
+        $result = false;
+        switch ($type) {
+            case IMAGETYPE_JPEG:
+                $result = imagejpeg($target, $filepath, 85);
+                break;
+            case IMAGETYPE_PNG:
+                $result = imagepng($target, $filepath, 6);
+                break;
+            case IMAGETYPE_GIF:
+                $result = imagegif($target, $filepath);
+                break;
+        }
+        
+        // Speicher freigeben
+        imagedestroy($source);
+        imagedestroy($target);
+        
+        return $result;
+    }
+    
+    /**
+     * Altes Profilbild löschen
+     */
+    private static function deleteOldImage($userId) {
+        $user = Database::fetchOne("SELECT profile_image FROM users WHERE id = ?", [$userId]);
+        
+        if ($user && !empty($user['profile_image'])) {
+            $oldFile = self::$uploadDir . $user['profile_image'];
+            if (file_exists($oldFile)) {
+                unlink($oldFile);
+            }
+        }
+    }
+    
+    /**
+     * Profilbild-URL abrufen
+     */
+    public static function getImageUrl($filename) {
+        if (empty($filename)) {
+            return null;
+        }
+        
+        $filepath = self::$uploadDir . $filename;
+        if (file_exists($filepath)) {
+            return $filepath . '?v=' . filemtime($filepath); // Cache-busting
+        }
+        
+        return null;
+    }
+    
+    /**
+     * Profilbild löschen
+     */
+    public static function deleteImage($userId) {
+        self::deleteOldImage($userId);
+        
+        return Database::update('users', [
+            'profile_image' => null
+        ], 'id = ?', [$userId]);
+    }
+    
+    /**
+     * .htaccess für Upload-Ordner erstellen
+     */
+    private static function createHtaccess() {
+        $htaccessPath = self::$uploadDir . '.htaccess';
+        
+        if (!file_exists($htaccessPath)) {
+            $content = "# Sicherheit für Upload-Ordner\n";
+            $content .= "Options -ExecCGI\n";
+            $content .= "AddHandler cgi-script .php .pl .py .jsp .asp .sh .cgi\n";
+            $content .= "\n";
+            $content .= "# Nur Bilder erlauben\n";
+            $content .= "<FilesMatch \"\\.(jpg|jpeg|png|gif)$\">\n";
+            $content .= "    Order Allow,Deny\n";
+            $content .= "    Allow from all\n";
+            $content .= "</FilesMatch>\n";
+            $content .= "\n";
+            $content .= "<FilesMatch \"\\.(php|php3|php4|php5|pl|py|jsp|asp|sh|cgi)$\">\n";
+            $content .= "    Order Deny,Allow\n";
+            $content .= "    Deny from all\n";
+            $content .= "</FilesMatch>\n";
+            
+            file_put_contents($htaccessPath, $content);
+        }
+    }
+    
+    /**
+     * Upload-Fehlermeldungen
+     */
+    private static function getUploadErrorMessage($errorCode) {
+        switch ($errorCode) {
+            case UPLOAD_ERR_INI_SIZE:
+            case UPLOAD_ERR_FORM_SIZE:
+                return 'Datei ist zu groß.';
+            case UPLOAD_ERR_PARTIAL:
+                return 'Datei wurde nur teilweise hochgeladen.';
+            case UPLOAD_ERR_NO_FILE:
+                return 'Keine Datei ausgewählt.';
+            case UPLOAD_ERR_NO_TMP_DIR:
+                return 'Kein temporärer Upload-Ordner.';
+            case UPLOAD_ERR_CANT_WRITE:
+                return 'Fehler beim Schreiben der Datei.';
+            case UPLOAD_ERR_EXTENSION:
+                return 'Upload durch PHP-Erweiterung gestoppt.';
+            default:
+                return 'Unbekannter Upload-Fehler.';
+        }
+    }
+}
+
+/**
+ * User-Avatar rendern
+ */
+function renderUserAvatar($user, $size = 'medium') {
+    $sizes = [
+        'small' => '24px',
+        'medium' => '40px', 
+        'large' => '60px',
+        'xlarge' => '150px'
+    ];
+    
+    $avatarSize = $sizes[$size] ?? $sizes['medium'];
+    $imageUrl = ProfileImageHandler::getImageUrl($user['profile_image'] ?? '');
+    
+    if ($imageUrl) {
+        return "<img src='" . htmlspecialchars($imageUrl) . "' 
+                     alt='Profilbild' 
+                     style='width: {$avatarSize}; height: {$avatarSize}; 
+                            border-radius: 50%; object-fit: cover; 
+                            border: 4px solid var(--energy); 
+                            box-shadow: var(--shadow-lg);'>";
+    } else {
+        $initial = strtoupper(substr($user['name'] ?? 'U', 0, 1));
+        return "<div style='width: {$avatarSize}; height: {$avatarSize}; 
+                            background: linear-gradient(135deg, var(--energy), #d97706); 
+                            border-radius: 50%; display: flex; 
+                            align-items: center; justify-content: center; 
+                            color: white; font-weight: bold; 
+                            font-size: calc({$avatarSize} * 0.4);'>{$initial}</div>";
+    }
+}
+
 // Profil-Verarbeitung
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     
@@ -27,13 +325,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         
         switch ($action) {
             case 'update_profile':
-                // Profil-Daten aktualisieren
+                // Profil-Daten aktualisieren (nur name und email - existierende Felder)
                 $name = trim($_POST['name'] ?? '');
                 $email = trim($_POST['email'] ?? '');
-                $phone = trim($_POST['phone'] ?? '');
-                $address = trim($_POST['address'] ?? '');
-                $city = trim($_POST['city'] ?? '');
-                $postal_code = trim($_POST['postal_code'] ?? '');
                 
                 if (empty($name) || empty($email)) {
                     Flash::error('Name und E-Mail sind Pflichtfelder.');
@@ -49,12 +343,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     } else {
                         $success = Database::update('users', [
                             'name' => $name,
-                            'email' => $email,
-                            'phone' => $phone,
-                            'address' => $address,
-                            'city' => $city,
-                            'postal_code' => $postal_code,
-                            'updated_at' => date('Y-m-d H:i:s')
+                            'email' => $email
                         ], 'id = ?', [$userId]);
                         
                         if ($success) {
@@ -91,8 +380,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     } else {
                         $hashedPassword = password_hash($newPassword, PASSWORD_DEFAULT);
                         $success = Database::update('users', [
-                            'password' => $hashedPassword,
-                            'updated_at' => date('Y-m-d H:i:s')
+                            'password' => $hashedPassword
                         ], 'id = ?', [$userId]);
                         
                         if ($success) {
@@ -104,25 +392,27 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 }
                 break;
                 
-            case 'update_preferences':
-                // Benutzer-Einstellungen
-                $theme = $_POST['theme'] ?? 'light';
-                $language = $_POST['language'] ?? 'de';
-                $notifications = isset($_POST['notifications']) ? 1 : 0;
-                $newsletter = isset($_POST['newsletter']) ? 1 : 0;
-                
-                $success = Database::update('users', [
-                    'theme_preference' => $theme,
-                    'language' => $language,
-                    'notifications_enabled' => $notifications,
-                    'newsletter_enabled' => $newsletter,
-                    'updated_at' => date('Y-m-d H:i:s')
-                ], 'id = ?', [$userId]);
-                
-                if ($success) {
-                    Flash::success('Einstellungen wurden gespeichert.');
+            case 'upload_image':
+                // Profilbild hochladen
+                if (!isset($_FILES['profile_image']) || $_FILES['profile_image']['error'] === UPLOAD_ERR_NO_FILE) {
+                    Flash::error('Bitte wählen Sie eine Bilddatei aus.');
                 } else {
-                    Flash::error('Fehler beim Speichern der Einstellungen.');
+                    $result = ProfileImageHandler::handleUpload($_FILES['profile_image'], $userId);
+                    
+                    if ($result['success']) {
+                        Flash::success('Profilbild wurde erfolgreich hochgeladen.');
+                    } else {
+                        Flash::error($result['error']);
+                    }
+                }
+                break;
+                
+            case 'delete_image':
+                // Profilbild löschen
+                if (ProfileImageHandler::deleteImage($userId)) {
+                    Flash::success('Profilbild wurde erfolgreich gelöscht.');
+                } else {
+                    Flash::error('Fehler beim Löschen des Profilbilds.');
                 }
                 break;
         }
@@ -133,28 +423,22 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     exit;
 }
 
-// Benutzer-Daten laden
+// Benutzer-Daten laden (nur existierende Felder)
 $userData = Database::fetchOne(
     "SELECT * FROM users WHERE id = ?",
     [$userId]
 );
 
 // Account-Statistiken
+$readingsResult = Database::fetchOne("SELECT COUNT(*) as count FROM meter_readings WHERE user_id = ?", [$userId]);
+$devicesResult = Database::fetchOne("SELECT COUNT(*) as count FROM devices WHERE user_id = ? AND is_active = 1", [$userId]);
+$tariffsResult = Database::fetchOne("SELECT COUNT(*) as count FROM tariff_periods WHERE user_id = ?", [$userId]);
+
 $accountStats = [
     'created_at' => $userData['created_at'] ?? date('Y-m-d H:i:s'),
-    'last_login' => $userData['last_login'] ?? date('Y-m-d H:i:s'),
-    'total_readings' => Database::fetchSingle(
-        "SELECT COUNT(*) FROM meter_readings WHERE user_id = ?",
-        [$userId]
-    ) ?: 0,
-    'total_devices' => Database::fetchSingle(
-        "SELECT COUNT(*) FROM devices WHERE user_id = ? AND is_active = 1",
-        [$userId]
-    ) ?: 0,
-    'total_tariffs' => Database::fetchSingle(
-        "SELECT COUNT(*) FROM tariff_periods WHERE user_id = ?",
-        [$userId]
-    ) ?: 0
+    'total_readings' => $readingsResult['count'] ?? 0,
+    'total_devices' => $devicesResult['count'] ?? 0,
+    'total_tariffs' => $tariffsResult['count'] ?? 0
 ];
 
 // Berechne Tage seit Registrierung
@@ -189,11 +473,7 @@ include 'includes/navbar.php';
                             
                             <!-- Avatar -->
                             <div class="position-relative">
-                                <div style="width: 60px; height: 60px; background: var(--gradient-energy); 
-                                           border-radius: 50%; display: flex; align-items: center; 
-                                           justify-content: center; color: white; font-size: 1.5rem; font-weight: bold;">
-                                    <?= strtoupper(substr($userData['name'] ?? 'U', 0, 1)) ?>
-                                </div>
+                                <?= renderUserAvatar($userData, 'large') ?>
                                 <div style="position: absolute; bottom: -2px; right: -2px; 
                                            width: 20px; height: 20px; background: var(--success); 
                                            border-radius: 50%; border: 2px solid white;
@@ -276,15 +556,15 @@ include 'includes/navbar.php';
                     </button>
                 </li>
                 <li class="nav-item" role="presentation">
-                    <button class="nav-link" id="security-tab" data-bs-toggle="tab" 
-                            data-bs-target="#security" type="button" role="tab">
-                        <i class="bi bi-shield-lock me-2"></i>Sicherheit
+                    <button class="nav-link" id="image-tab" data-bs-toggle="tab" 
+                            data-bs-target="#profile-image" type="button" role="tab">
+                        <i class="bi bi-camera me-2"></i>Profilbild
                     </button>
                 </li>
                 <li class="nav-item" role="presentation">
-                    <button class="nav-link" id="preferences-tab" data-bs-toggle="tab" 
-                            data-bs-target="#preferences" type="button" role="tab">
-                        <i class="bi bi-gear me-2"></i>Einstellungen
+                    <button class="nav-link" id="security-tab" data-bs-toggle="tab" 
+                            data-bs-target="#security" type="button" role="tab">
+                        <i class="bi bi-shield-lock me-2"></i>Sicherheit
                     </button>
                 </li>
                 <li class="nav-item" role="presentation">
@@ -326,36 +606,10 @@ include 'includes/navbar.php';
                                     </div>
                                 </div>
                                 
-                                <div class="row">
-                                    <div class="col-md-6 mb-3">
-                                        <label class="form-label">Telefon</label>
-                                        <input type="tel" class="form-control" name="phone" 
-                                               value="<?= htmlspecialchars($userData['phone'] ?? '') ?>" 
-                                               placeholder="z.B. +49 123 456789">
-                                    </div>
-                                    
-                                    <div class="col-md-6 mb-3">
-                                        <label class="form-label">Postleitzahl</label>
-                                        <input type="text" class="form-control" name="postal_code" 
-                                               value="<?= htmlspecialchars($userData['postal_code'] ?? '') ?>" 
-                                               placeholder="z.B. 12345">
-                                    </div>
-                                </div>
-                                
-                                <div class="row">
-                                    <div class="col-md-8 mb-3">
-                                        <label class="form-label">Adresse</label>
-                                        <input type="text" class="form-control" name="address" 
-                                               value="<?= htmlspecialchars($userData['address'] ?? '') ?>" 
-                                               placeholder="Straße und Hausnummer">
-                                    </div>
-                                    
-                                    <div class="col-md-4 mb-3">
-                                        <label class="form-label">Stadt</label>
-                                        <input type="text" class="form-control" name="city" 
-                                               value="<?= htmlspecialchars($userData['city'] ?? '') ?>" 
-                                               placeholder="z.B. München">
-                                    </div>
+                                <div class="alert alert-info">
+                                    <i class="bi bi-info-circle me-2"></i>
+                                    <strong>Hinweis:</strong> Derzeit können nur Name und E-Mail-Adresse bearbeitet werden. 
+                                    Weitere Profilfelder werden in einer zukünftigen Version hinzugefügt.
                                 </div>
                                 
                                 <div class="text-end">
@@ -364,6 +618,101 @@ include 'includes/navbar.php';
                                     </button>
                                 </div>
                             </form>
+                        </div>
+                    </div>
+                </div>
+                
+                <!-- Profilbild Tab -->
+                <div class="tab-pane fade" id="profile-image" role="tabpanel">
+                    <div class="card">
+                        <div class="card-header">
+                            <h5 class="mb-0">
+                                <i class="bi bi-camera text-energy"></i>
+                                Profilbild verwalten
+                            </h5>
+                        </div>
+                        <div class="card-body">
+                            
+                            <div class="row">
+                                <!-- Aktuelles Profilbild -->
+                                <div class="col-md-4 text-center mb-4">
+                                    <h6>Aktuelles Profilbild</h6>
+                                    
+                                    <div class="profile-image-container mb-3">
+                                        <?php 
+                                        $currentImage = ProfileImageHandler::getImageUrl($userData['profile_image']); 
+                                        if ($currentImage): 
+                                        ?>
+                                            <img src="<?= htmlspecialchars($currentImage) ?>" 
+                                                 alt="Profilbild" 
+                                                 class="profile-image-large">
+                                        <?php else: ?>
+                                            <div class="profile-image-placeholder">
+                                                <i class="bi bi-person-circle"></i>
+                                                <div class="mt-2">Kein Profilbild</div>
+                                            </div>
+                                        <?php endif; ?>
+                                    </div>
+                                    
+                                    <?php if ($currentImage): ?>
+                                        <form method="POST" style="display: inline;">
+                                            <input type="hidden" name="csrf_token" value="<?= $csrfToken ?>">
+                                            <input type="hidden" name="action" value="delete_image">
+                                            <button type="submit" class="btn btn-outline-danger btn-sm" 
+                                                    onclick="return confirm('Profilbild wirklich löschen?')">
+                                                <i class="bi bi-trash me-1"></i>Löschen
+                                            </button>
+                                        </form>
+                                    <?php endif; ?>
+                                </div>
+                                
+                                <!-- Upload-Formular -->
+                                <div class="col-md-8">
+                                    <h6>Neues Profilbild hochladen</h6>
+                                    
+                                    <form method="POST" enctype="multipart/form-data" class="upload-form">
+                                        <input type="hidden" name="csrf_token" value="<?= $csrfToken ?>">
+                                        <input type="hidden" name="action" value="upload_image">
+                                        
+                                        <div class="mb-3">
+                                            <label class="form-label">Bilddatei auswählen</label>
+                                            <input type="file" class="form-control" name="profile_image" 
+                                                   accept="image/jpeg,image/png,image/gif" 
+                                                   required
+                                                   onchange="previewImage(this)">
+                                            <div class="form-text">
+                                                <i class="bi bi-info-circle me-1"></i>
+                                                Erlaubt: JPG, PNG, GIF • Max. 2MB • Wird automatisch auf 200x200px verkleinert
+                                            </div>
+                                        </div>
+                                        
+                                        <!-- Vorschau -->
+                                        <div class="mb-3">
+                                            <div id="image-preview" class="image-preview" style="display: none;">
+                                                <h6>Vorschau:</h6>
+                                                <img id="preview-img" src="" alt="Vorschau" class="preview-image">
+                                            </div>
+                                        </div>
+                                        
+                                        <button type="submit" class="btn btn-energy">
+                                            <i class="bi bi-upload me-2"></i>Profilbild hochladen
+                                        </button>
+                                    </form>
+                                </div>
+                            </div>
+                            
+                            <!-- Hinweise -->
+                            <hr class="my-4">
+                            
+                            <div class="alert alert-info">
+                                <h6><i class="bi bi-lightbulb me-2"></i>Tipps für das perfekte Profilbild:</h6>
+                                <ul class="mb-0">
+                                    <li>Verwenden Sie ein aktuelles, gut erkennbares Foto</li>
+                                    <li>Quadratische Bilder funktionieren am besten</li>
+                                    <li>Achten Sie auf ausreichend Licht und gute Qualität</li>
+                                    <li>Das Bild wird automatisch auf 200x200 Pixel verkleinert</li>
+                                </ul>
+                            </div>
                         </div>
                     </div>
                 </div>
@@ -444,77 +793,6 @@ include 'includes/navbar.php';
                     </div>
                 </div>
                 
-                <!-- Einstellungen -->
-                <div class="tab-pane fade" id="preferences" role="tabpanel">
-                    <div class="card">
-                        <div class="card-header">
-                            <h5 class="mb-0">
-                                <i class="bi bi-gear text-energy"></i>
-                                Persönliche Einstellungen
-                            </h5>
-                        </div>
-                        <div class="card-body">
-                            <form method="POST">
-                                <input type="hidden" name="csrf_token" value="<?= $csrfToken ?>">
-                                <input type="hidden" name="action" value="update_preferences">
-                                
-                                <div class="row">
-                                    <div class="col-md-6 mb-3">
-                                        <label class="form-label">
-                                            <i class="bi bi-palette me-2"></i>Theme
-                                        </label>
-                                        <select class="form-select" name="theme">
-                                            <option value="light" <?= ($userData['theme_preference'] ?? 'light') === 'light' ? 'selected' : '' ?>>Hell (Standard)</option>
-                                            <option value="dark" <?= ($userData['theme_preference'] ?? 'light') === 'dark' ? 'selected' : '' ?>>Dunkel</option>
-                                            <option value="auto" <?= ($userData['theme_preference'] ?? 'light') === 'auto' ? 'selected' : '' ?>>Automatisch</option>
-                                        </select>
-                                    </div>
-                                    
-                                    <div class="col-md-6 mb-3">
-                                        <label class="form-label">
-                                            <i class="bi bi-translate me-2"></i>Sprache
-                                        </label>
-                                        <select class="form-select" name="language">
-                                            <option value="de" <?= ($userData['language'] ?? 'de') === 'de' ? 'selected' : '' ?>>Deutsch</option>
-                                            <option value="en" <?= ($userData['language'] ?? 'de') === 'en' ? 'selected' : '' ?>>English</option>
-                                        </select>
-                                    </div>
-                                </div>
-                                
-                                <div class="row">
-                                    <div class="col-12 mb-3">
-                                        <h6>Benachrichtigungen</h6>
-                                        
-                                        <div class="form-check">
-                                            <input class="form-check-input" type="checkbox" name="notifications" 
-                                                   id="notifications" <?= ($userData['notifications_enabled'] ?? 0) ? 'checked' : '' ?>>
-                                            <label class="form-check-label" for="notifications">
-                                                <i class="bi bi-bell me-2"></i>
-                                                E-Mail-Benachrichtigungen erhalten
-                                            </label>
-                                        </div>
-                                        
-                                        <div class="form-check">
-                                            <input class="form-check-input" type="checkbox" name="newsletter" 
-                                                   id="newsletter" <?= ($userData['newsletter_enabled'] ?? 0) ? 'checked' : '' ?>>
-                                            <label class="form-check-label" for="newsletter">
-                                                <i class="bi bi-envelope me-2"></i>
-                                                Newsletter und Updates erhalten
-                                            </label>
-                                        </div>
-                                    </div>
-                                </div>
-                                
-                                <div class="text-end">
-                                    <button type="submit" class="btn btn-energy">
-                                        <i class="bi bi-check-circle me-2"></i>Einstellungen speichern
-                                    </button>
-                                </div>
-                            </form>
-                        </div>
-                    </div>
-                </div>
-                
                 <!-- Account-Info -->
                 <div class="tab-pane fade" id="account" role="tabpanel">
                     <div class="card">
@@ -534,12 +812,16 @@ include 'includes/navbar.php';
                                             <td>#<?= $userId ?></td>
                                         </tr>
                                         <tr>
-                                            <td><strong>Registriert:</strong></td>
-                                            <td><?= date('d.m.Y H:i', strtotime($accountStats['created_at'])) ?></td>
+                                            <td><strong>Name:</strong></td>
+                                            <td><?= htmlspecialchars($userData['name'] ?? '-') ?></td>
                                         </tr>
                                         <tr>
-                                            <td><strong>Letzter Login:</strong></td>
-                                            <td><?= date('d.m.Y H:i', strtotime($accountStats['last_login'])) ?></td>
+                                            <td><strong>E-Mail:</strong></td>
+                                            <td><?= htmlspecialchars($userData['email'] ?? '-') ?></td>
+                                        </tr>
+                                        <tr>
+                                            <td><strong>Registriert:</strong></td>
+                                            <td><?= date('d.m.Y H:i', strtotime($accountStats['created_at'])) ?></td>
                                         </tr>
                                         <tr>
                                             <td><strong>Tage dabei:</strong></td>
@@ -593,6 +875,85 @@ include 'includes/navbar.php';
 </div>
 
 <?php include 'includes/footer.php'; ?>
+
+<!-- Custom Styles für Profilbild -->
+<style>
+.profile-image-container {
+    position: relative;
+    display: inline-block;
+}
+
+.profile-image-large {
+    width: 150px;
+    height: 150px;
+    border-radius: 50%;
+    object-fit: cover;
+    border: 4px solid var(--energy);
+    box-shadow: var(--shadow-lg);
+}
+
+.profile-image-placeholder {
+    width: 150px;
+    height: 150px;
+    border-radius: 50%;
+    background: var(--gray-100);
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    border: 2px dashed var(--gray-300);
+    color: var(--gray-500);
+    font-size: 3rem;
+}
+
+.image-preview {
+    padding: 1rem;
+    background: var(--gray-50);
+    border-radius: var(--radius-lg);
+    border: 1px solid var(--gray-200);
+}
+
+.preview-image {
+    max-width: 200px;
+    max-height: 200px;
+    border-radius: var(--radius-lg);
+    object-fit: cover;
+}
+
+.upload-form {
+    background: var(--white);
+    padding: 1.5rem;
+    border-radius: var(--radius-lg);
+    border: 1px solid var(--gray-200);
+}
+
+/* Drag & Drop Styling */
+.form-control[type="file"] {
+    transition: all 0.3s ease;
+}
+
+.form-control[type="file"]:hover {
+    border-color: var(--energy);
+    box-shadow: 0 0 0 3px rgba(245, 158, 11, 0.1);
+}
+
+/* Dark Theme Support */
+[data-theme="dark"] .profile-image-placeholder {
+    background: var(--gray-700);
+    border-color: var(--gray-600);
+    color: var(--gray-400);
+}
+
+[data-theme="dark"] .image-preview {
+    background: var(--gray-700);
+    border-color: var(--gray-600);
+}
+
+[data-theme="dark"] .upload-form {
+    background: var(--gray-800);
+    border-color: var(--gray-600);
+}
+</style>
 
 <!-- JavaScript -->
 <script>
@@ -654,17 +1015,24 @@ document.addEventListener('DOMContentLoaded', function() {
             }
         });
     });
-    
-    // Theme preview
-    const themeSelect = document.querySelector('select[name="theme"]');
-    if (themeSelect) {
-        themeSelect.addEventListener('change', function() {
-            const theme = this.value === 'auto' ? 
-                (window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light') : 
-                this.value;
-            
-            document.documentElement.setAttribute('data-theme', theme);
-        });
-    }
 });
+
+// Image Preview Function
+function previewImage(input) {
+    const preview = document.getElementById('image-preview');
+    const previewImg = document.getElementById('preview-img');
+    
+    if (input.files && input.files[0]) {
+        const reader = new FileReader();
+        
+        reader.onload = function(e) {
+            previewImg.src = e.target.result;
+            preview.style.display = 'block';
+        };
+        
+        reader.readAsDataURL(input.files[0]);
+    } else {
+        preview.style.display = 'none';
+    }
+}
 </script>

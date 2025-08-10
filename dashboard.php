@@ -1,6 +1,6 @@
 <?php
 // dashboard.php
-// EINFACHES & SCHÖNES Dashboard für Stromtracker
+// ECHTES Dashboard mit Datenbankdaten für Stromtracker
 
 require_once 'config/database.php';
 require_once 'config/session.php';
@@ -12,19 +12,140 @@ $pageTitle = 'Dashboard - Stromtracker';
 $user = Auth::getUser();
 $userId = Auth::getUserId();
 
-// Statistiken (vereinfacht für Demo)
+// =============================================================================
+// ECHTE STATISTIKEN AUS DER DATENBANK
+// =============================================================================
+
+// Aktueller Monat
+$currentMonth = date('Y-m');
+$currentYear = date('Y');
+
+// Aktueller Monat Verbrauch
+$currentMonthData = Database::fetchOne(
+    "SELECT consumption, cost FROM meter_readings 
+     WHERE user_id = ? AND DATE_FORMAT(reading_date, '%Y-%m') = ?",
+    [$userId, $currentMonth]
+) ?: ['consumption' => 0, 'cost' => 0];
+
+// Jahresverbrauch
+$yearData = Database::fetchOne(
+    "SELECT SUM(consumption) as consumption, SUM(cost) as cost 
+     FROM meter_readings 
+     WHERE user_id = ? AND YEAR(reading_date) = ?",
+    [$userId, $currentYear]
+) ?: ['consumption' => 0, 'cost' => 0];
+
+// Geräte-Anzahl
+$devicesData = Database::fetchOne(
+    "SELECT COUNT(*) as active_count FROM devices 
+     WHERE user_id = ? AND is_active = 1",
+    [$userId]
+) ?: ['active_count' => 0];
+
+// Anzahl Zählerstände
+$readingsData = Database::fetchOne(
+    "SELECT COUNT(*) as total_readings FROM meter_readings 
+     WHERE user_id = ?",
+    [$userId]
+) ?: ['total_readings' => 0];
+
+// Trend-Berechnung (Vergleich mit Vormonat)
+$lastMonth = date('Y-m', strtotime('-1 month'));
+$lastMonthData = Database::fetchOne(
+    "SELECT consumption, cost FROM meter_readings 
+     WHERE user_id = ? AND DATE_FORMAT(reading_date, '%Y-%m') = ?",
+    [$userId, $lastMonth]
+) ?: ['consumption' => 0, 'cost' => 0];
+
+// Trend berechnen
+function calculateTrend($current, $previous) {
+    if ($previous == 0) return 0;
+    return round((($current - $previous) / $previous) * 100);
+}
+
+$consumptionTrend = calculateTrend($currentMonthData['consumption'], $lastMonthData['consumption']);
+$costTrend = calculateTrend($currentMonthData['cost'], $lastMonthData['cost']);
+
+// Letzten 7 Tage für Sparkline (falls Daten vorhanden)
+$weeklyData = Database::fetchAll(
+    "SELECT DATE(reading_date) as date, consumption, cost 
+     FROM meter_readings 
+     WHERE user_id = ? AND reading_date >= DATE_SUB(CURDATE(), INTERVAL 6 MONTH)
+     ORDER BY reading_date ASC 
+     LIMIT 7",
+    [$userId]
+) ?: [];
+
+// Chart-Daten für die letzten 6 Monate
+$chartData = Database::fetchAll(
+    "SELECT 
+        DATE_FORMAT(reading_date, '%Y-%m') as month,
+        DATE_FORMAT(reading_date, '%m/%Y') as month_label,
+        consumption,
+        cost
+     FROM meter_readings 
+     WHERE user_id = ? AND reading_date >= DATE_SUB(CURDATE(), INTERVAL 6 MONTH)
+     ORDER BY reading_date ASC",
+    [$userId]
+) ?: [];
+
+// Top Geräte (geschätzt basierend auf Leistung)
+$topDevices = Database::fetchAll(
+    "SELECT name, category, wattage,
+            (wattage * 24 * 30 / 1000) as estimated_monthly_kwh,
+            (wattage * 24 * 30 / 1000 * 0.32) as estimated_monthly_cost
+     FROM devices 
+     WHERE user_id = ? AND is_active = 1 
+     ORDER BY wattage DESC 
+     LIMIT 5",
+    [$userId]
+) ?: [];
+
+// Aktueller Tarif
+$currentTariff = Database::fetchOne(
+    "SELECT * FROM tariff_periods 
+     WHERE user_id = ? AND is_active = 1 
+     ORDER BY valid_from DESC LIMIT 1",
+    [$userId]
+) ?: null;
+
+// Durchschnittsverbrauch berechnen
+$avgConsumption = 0;
+if (!empty($chartData)) {
+    $totalConsumption = array_sum(array_column($chartData, 'consumption'));
+    $avgConsumption = $totalConsumption / count($chartData);
+}
+
+// Statistiken zusammenfassen
 $stats = [
-    'current_month_consumption' => 450.5,
-    'current_month_cost' => 144.16,
-    'year_consumption' => 4205.3,
-    'year_cost' => 1345.70,
-    'total_devices' => 12,
-    'total_readings' => 8
+    'current_month_consumption' => (float)($currentMonthData['consumption'] ?? 0),
+    'current_month_cost' => (float)($currentMonthData['cost'] ?? 0),
+    'year_consumption' => (float)($yearData['consumption'] ?? 0),
+    'year_cost' => (float)($yearData['cost'] ?? 0),
+    'total_devices' => (int)($devicesData['active_count'] ?? 0),
+    'total_readings' => (int)($readingsData['total_readings'] ?? 0),
+    'consumption_trend' => $consumptionTrend,
+    'cost_trend' => $costTrend,
+    'avg_consumption' => $avgConsumption
 ];
 
-// Trend-Daten für Sparklines
-$trendData = [420, 435, 445, 450, 465, 450, 445];
-$costTrend = [134.40, 139.20, 142.40, 144.16, 148.80, 144.16, 142.40];
+// Trend-Daten für Charts vorbereiten
+$trendLabels = [];
+$trendConsumption = [];
+$trendCosts = [];
+
+foreach ($chartData as $data) {
+    $trendLabels[] = $data['month_label'];
+    $trendConsumption[] = (float)($data['consumption'] ?? 0);
+    $trendCosts[] = (float)($data['cost'] ?? 0);
+}
+
+// Falls keine Daten vorhanden, Demo-Daten für Chart
+if (empty($chartData)) {
+    $trendLabels = ['Jan', 'Feb', 'Mär', 'Apr', 'Mai', 'Jun'];
+    $trendConsumption = [0, 0, 0, 0, 0, 0];
+    $trendCosts = [0, 0, 0, 0, 0, 0];
+}
 
 include 'includes/header.php';
 include 'includes/navbar.php';
@@ -43,9 +164,15 @@ include 'includes/navbar.php';
                             <span class="energy-indicator"></span>
                             Willkommen zurück, <?= htmlspecialchars($user['name'] ?? explode('@', $user['email'])[0]) ?>!
                         </h1>
-                        <p class="lead text-muted mb-0">
-                            Hier ist Ihre aktuelle Stromverbrauch-Übersicht.
-                        </p>
+                        <?php if ($stats['total_readings'] > 0): ?>
+                            <p class="lead text-muted mb-0">
+                                Hier ist Ihre aktuelle Stromverbrauch-Übersicht basierend auf <?= $stats['total_readings'] ?> Zählerständen.
+                            </p>
+                        <?php else: ?>
+                            <p class="lead text-muted mb-0">
+                                Erfassen Sie Ihren ersten Zählerstand, um mit der Verbrauchsanalyse zu beginnen.
+                            </p>
+                        <?php endif; ?>
                     </div>
                     <div class="col-md-4 text-end">
                         <div class="d-flex justify-content-end align-items-center gap-3">
@@ -72,8 +199,16 @@ include 'includes/navbar.php';
                 <div class="flex-between mb-3">
                     <i class="stats-icon bi bi-lightning-charge"></i>
                     <div class="small">
-                        <i class="bi bi-arrow-up-short"></i>
-                        <span>+12%</span>
+                        <?php if ($consumptionTrend > 0): ?>
+                            <i class="bi bi-arrow-up-short text-danger"></i>
+                            <span class="text-danger">+<?= $consumptionTrend ?>%</span>
+                        <?php elseif ($consumptionTrend < 0): ?>
+                            <i class="bi bi-arrow-down-short text-success"></i>
+                            <span class="text-success"><?= $consumptionTrend ?>%</span>
+                        <?php else: ?>
+                            <i class="bi bi-dash"></i>
+                            <span>0%</span>
+                        <?php endif; ?>
                     </div>
                 </div>
                 <h3><?= number_format($stats['current_month_consumption'], 1) ?></h3>
@@ -87,8 +222,16 @@ include 'includes/navbar.php';
                 <div class="flex-between mb-3">
                     <i class="stats-icon bi bi-currency-euro"></i>
                     <div class="small">
-                        <i class="bi bi-arrow-up-short"></i>
-                        <span>+8%</span>
+                        <?php if ($costTrend > 0): ?>
+                            <i class="bi bi-arrow-up-short text-danger"></i>
+                            <span class="text-danger">+<?= $costTrend ?>%</span>
+                        <?php elseif ($costTrend < 0): ?>
+                            <i class="bi bi-arrow-down-short text-success"></i>
+                            <span class="text-success"><?= $costTrend ?>%</span>
+                        <?php else: ?>
+                            <i class="bi bi-dash"></i>
+                            <span>0%</span>
+                        <?php endif; ?>
                     </div>
                 </div>
                 <h3><?= number_format($stats['current_month_cost'], 2) ?> €</h3>
@@ -102,8 +245,7 @@ include 'includes/navbar.php';
                 <div class="flex-between mb-3">
                     <i class="stats-icon bi bi-graph-up"></i>
                     <div class="small">
-                        <i class="bi bi-arrow-down-short"></i>
-                        <span>-3%</span>
+                        <?= $currentYear ?>
                     </div>
                 </div>
                 <h3><?= number_format($stats['year_consumption'], 0) ?></h3>
@@ -117,8 +259,7 @@ include 'includes/navbar.php';
                 <div class="flex-between mb-3">
                     <i class="stats-icon bi bi-cpu"></i>
                     <div class="small">
-                        <i class="bi bi-arrow-up-short"></i>
-                        <span>+2</span>
+                        Aktiv
                     </div>
                 </div>
                 <h3><?= $stats['total_devices'] ?></h3>
@@ -152,7 +293,7 @@ include 'includes/navbar.php';
                             <i class="bi bi-cpu mb-2 d-block" style="font-size: 1.5rem;"></i>
                             <div>
                                 <div class="fw-bold">Geräte</div>
-                                <small>Verwalten</small>
+                                <small>Verwalten (<?= $stats['total_devices'] ?>)</small>
                             </div>
                         </a>
                     </div>
@@ -168,13 +309,13 @@ include 'includes/navbar.php';
                     </div>
 
                     <div class="col-md-3 mb-3">
-                        <button class="btn btn-outline-primary w-100 p-4" data-bs-toggle="modal" data-bs-target="#exportModal">
-                            <i class="bi bi-download mb-2 d-block" style="font-size: 1.5rem;"></i>
+                        <a href="tarife.php" class="btn btn-outline-primary w-100 p-4 text-decoration-none">
+                            <i class="bi bi-receipt mb-2 d-block" style="font-size: 1.5rem;"></i>
                             <div>
-                                <div class="fw-bold">Export</div>
-                                <small>Daten sichern</small>
+                                <div class="fw-bold">Tarife</div>
+                                <small><?= $currentTariff ? 'Verwalten' : 'Erstellen' ?></small>
                             </div>
-                        </button>
+                        </a>
                     </div>
                 </div>
             </div>
@@ -190,20 +331,39 @@ include 'includes/navbar.php';
                 <div class="flex-between mb-4">
                     <h5 class="mb-0 flex-center gap-2">
                         <i class="bi bi-graph-up text-success"></i>
-                        Verbrauchstrend
+                        Verbrauchstrend (<?= count($chartData) ?> Monate)
                     </h5>
 
-                    <!-- Chart Controls -->
-                    <div class="btn-group btn-group-sm">
-                        <button class="btn btn-outline-primary active" data-period="7d">7T</button>
-                        <button class="btn btn-outline-primary" data-period="30d">30T</button>
-                        <button class="btn btn-outline-primary" data-period="12m">12M</button>
+                    <!-- Chart Info -->
+                    <div class="text-end">
+                        <?php if (!empty($chartData)): ?>
+                            <small class="text-muted">
+                                Ø <?= number_format($avgConsumption, 1) ?> kWh/Monat
+                            </small>
+                        <?php else: ?>
+                            <small class="text-muted">
+                                Keine Daten verfügbar
+                            </small>
+                        <?php endif; ?>
                     </div>
                 </div>
 
                 <!-- Chart Canvas -->
                 <div style="position: relative; height: 300px;">
-                    <canvas id="consumptionChart"></canvas>
+                    <?php if (!empty($chartData)): ?>
+                        <canvas id="consumptionChart"></canvas>
+                    <?php else: ?>
+                        <div class="d-flex align-items-center justify-content-center h-100">
+                            <div class="text-center">
+                                <i class="bi bi-graph-up display-4 text-muted mb-3"></i>
+                                <h5 class="text-muted">Keine Verbrauchsdaten</h5>
+                                <p class="text-muted">Erfassen Sie Zählerstände, um Charts zu sehen.</p>
+                                <a href="zaehlerstand.php" class="btn btn-energy">
+                                    <i class="bi bi-plus-circle me-2"></i>Zählerstand erfassen
+                                </a>
+                            </div>
+                        </div>
+                    <?php endif; ?>
                 </div>
             </div>
         </div>
@@ -211,41 +371,42 @@ include 'includes/navbar.php';
         <!-- Sidebar -->
         <div class="col-md-4">
             
-            <!-- Aktuelle Werte -->
+            <!-- Aktueller Tarif -->
+            <?php if ($currentTariff): ?>
             <div class="card mb-4">
                 <div class="card-body">
                     <h6 class="card-title flex-center gap-2">
-                        <i class="bi bi-speedometer2 text-energy"></i>
-                        Live-Daten
+                        <i class="bi bi-receipt text-energy"></i>
+                        Aktueller Tarif
                     </h6>
                     
                     <div class="mb-3">
                         <div class="flex-between">
-                            <span class="text-muted">Aktueller Verbrauch</span>
-                            <strong class="text-energy">2.4 kW</strong>
+                            <span class="text-muted">Anbieter</span>
+                            <strong><?= htmlspecialchars($currentTariff['provider_name'] ?: 'Standard') ?></strong>
                         </div>
                     </div>
                     
                     <div class="mb-3">
                         <div class="flex-between">
-                            <span class="text-muted">Heute bisher</span>
-                            <strong>18.7 kWh</strong>
+                            <span class="text-muted">Arbeitspreis</span>
+                            <strong class="text-energy"><?= number_format($currentTariff['rate_per_kwh'], 4) ?> €/kWh</strong>
                         </div>
                     </div>
                     
                     <div class="mb-3">
                         <div class="flex-between">
-                            <span class="text-muted">Kosten heute</span>
-                            <strong class="text-warning">5.99 €</strong>
+                            <span class="text-muted">Monatlicher Abschlag</span>
+                            <strong class="text-warning"><?= number_format($currentTariff['monthly_payment'], 2) ?> €</strong>
                         </div>
                     </div>
                     
-                    <div class="progress" style="height: 8px;">
-                        <div class="progress-bar bg-energy" role="progressbar" style="width: 65%"></div>
-                    </div>
-                    <small class="text-muted">65% des Tagesziels erreicht</small>
+                    <a href="tarife.php" class="btn btn-outline-primary btn-sm w-100">
+                        Tarife verwalten
+                    </a>
                 </div>
             </div>
+            <?php endif; ?>
 
             <!-- Top Geräte -->
             <div class="card">
@@ -255,71 +416,41 @@ include 'includes/navbar.php';
                         Top Stromverbraucher
                     </h6>
                     
-                    <div class="mb-3">
-                        <div class="flex-between mb-1">
-                            <span>Waschmaschine</span>
-                            <span class="text-danger">3.2 kWh</span>
+                    <?php if (!empty($topDevices)): ?>
+                        <?php foreach (array_slice($topDevices, 0, 3) as $index => $device): ?>
+                            <div class="mb-3">
+                                <div class="flex-between mb-1">
+                                    <span>
+                                        <i class="bi bi-cpu me-1"></i>
+                                        <?= htmlspecialchars($device['name']) ?>
+                                    </span>
+                                    <span class="<?= $index === 0 ? 'text-danger' : ($index === 1 ? 'text-warning' : 'text-success') ?>">
+                                        <?= number_format($device['estimated_monthly_kwh'], 1) ?> kWh
+                                    </span>
+                                </div>
+                                <div class="progress" style="height: 4px;">
+                                    <div class="progress-bar <?= $index === 0 ? 'bg-danger' : ($index === 1 ? 'bg-warning' : 'bg-success') ?>" 
+                                         style="width: <?= min(100, ($device['wattage'] / 2000) * 100) ?>%"></div>
+                                </div>
+                                <small class="text-muted">
+                                    <?= number_format($device['wattage']) ?>W • 
+                                    ~<?= number_format($device['estimated_monthly_cost'], 2) ?> €/Monat
+                                </small>
+                            </div>
+                        <?php endforeach; ?>
+                        
+                        <a href="geraete.php" class="btn btn-outline-primary btn-sm w-100 mt-3">
+                            Alle <?= count($topDevices) ?> Geräte anzeigen
+                        </a>
+                    <?php else: ?>
+                        <div class="text-center py-3">
+                            <i class="bi bi-cpu display-4 text-muted"></i>
+                            <p class="text-muted mt-2">Keine Geräte registriert</p>
+                            <a href="geraete.php" class="btn btn-primary btn-sm">
+                                <i class="bi bi-plus-circle me-1"></i>Geräte hinzufügen
+                            </a>
                         </div>
-                        <div class="progress" style="height: 4px;">
-                            <div class="progress-bar bg-danger" style="width: 80%"></div>
-                        </div>
-                    </div>
-                    
-                    <div class="mb-3">
-                        <div class="flex-between mb-1">
-                            <span>Kühlschrank</span>
-                            <span class="text-warning">2.1 kWh</span>
-                        </div>
-                        <div class="progress" style="height: 4px;">
-                            <div class="progress-bar bg-warning" style="width: 52%"></div>
-                        </div>
-                    </div>
-                    
-                    <div class="mb-3">
-                        <div class="flex-between mb-1">
-                            <span>Fernseher</span>
-                            <span class="text-success">0.8 kWh</span>
-                        </div>
-                        <div class="progress" style="height: 4px;">
-                            <div class="progress-bar bg-success" style="width: 20%"></div>
-                        </div>
-                    </div>
-                    
-                    <a href="geraete.php" class="btn btn-outline-primary btn-sm w-100 mt-3">
-                        Alle Geräte anzeigen
-                    </a>
-                </div>
-            </div>
-        </div>
-    </div>
-</div>
-
-<!-- Export Modal -->
-<div class="modal fade" id="exportModal" tabindex="-1">
-    <div class="modal-dialog">
-        <div class="modal-content">
-            <div class="modal-header">
-                <h5 class="modal-title">
-                    <i class="bi bi-download text-energy"></i>
-                    Daten exportieren
-                </h5>
-                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
-            </div>
-            <div class="modal-body">
-                <p>Welche Daten möchten Sie exportieren?</p>
-                <div class="list-group">
-                    <a href="export.php?type=consumption" class="list-group-item list-group-item-action">
-                        <i class="bi bi-lightning-charge"></i> Verbrauchsdaten (CSV)
-                    </a>
-                    <a href="export.php?type=costs" class="list-group-item list-group-item-action">
-                        <i class="bi bi-currency-euro"></i> Kostendaten (CSV)
-                    </a>
-                    <a href="export.php?type=devices" class="list-group-item list-group-item-action">
-                        <i class="bi bi-cpu"></i> Geräteliste (CSV)
-                    </a>
-                    <a href="export.php?type=all" class="list-group-item list-group-item-action">
-                        <i class="bi bi-archive"></i> Vollständiger Export (ZIP)
-                    </a>
+                    <?php endif; ?>
                 </div>
             </div>
         </div>
@@ -331,57 +462,117 @@ include 'includes/navbar.php';
 <!-- Chart.js Setup -->
 <script>
 document.addEventListener('DOMContentLoaded', function() {
-    // Verbrauchstrend Chart
+    
+    // Nur Chart erstellen wenn Daten vorhanden sind
+    <?php if (!empty($chartData)): ?>
+    
+    // Verbrauchstrend Chart mit echten Daten
     const ctx = document.getElementById('consumptionChart').getContext('2d');
     const chart = new Chart(ctx, {
         type: 'line',
         data: {
-            labels: ['Mo', 'Di', 'Mi', 'Do', 'Fr', 'Sa', 'So'],
-            datasets: [{
-                label: 'Verbrauch (kWh)',
-                data: <?= json_encode($trendData) ?>,
-                borderColor: 'rgb(245, 158, 11)',
-                backgroundColor: 'rgba(245, 158, 11, 0.1)',
-                tension: 0.4,
-                fill: true
-            }]
+            labels: <?= json_encode($trendLabels) ?>,
+            datasets: [
+                {
+                    label: 'Verbrauch (kWh)',
+                    data: <?= json_encode($trendConsumption) ?>,
+                    borderColor: 'rgb(245, 158, 11)',
+                    backgroundColor: 'rgba(245, 158, 11, 0.1)',
+                    tension: 0.4,
+                    fill: true,
+                    pointBackgroundColor: 'rgb(245, 158, 11)',
+                    pointBorderColor: '#ffffff',
+                    pointBorderWidth: 2,
+                    pointRadius: 4
+                },
+                {
+                    label: 'Kosten (€)',
+                    data: <?= json_encode($trendCosts) ?>,
+                    borderColor: 'rgb(16, 185, 129)',
+                    backgroundColor: 'rgba(16, 185, 129, 0.1)',
+                    tension: 0.4,
+                    fill: false,
+                    pointBackgroundColor: 'rgb(16, 185, 129)',
+                    pointBorderColor: '#ffffff',
+                    pointBorderWidth: 2,
+                    pointRadius: 4,
+                    yAxisID: 'y1'
+                }
+            ]
         },
         options: {
             responsive: true,
             maintainAspectRatio: false,
+            interaction: {
+                mode: 'index',
+                intersect: false,
+            },
             plugins: {
                 legend: {
-                    display: false
+                    position: 'top',
+                    labels: {
+                        usePointStyle: true,
+                        padding: 20
+                    }
+                },
+                tooltip: {
+                    backgroundColor: 'rgba(0, 0, 0, 0.8)',
+                    titleColor: '#ffffff',
+                    bodyColor: '#ffffff',
+                    borderColor: 'rgb(245, 158, 11)',
+                    borderWidth: 1,
+                    cornerRadius: 8,
+                    callbacks: {
+                        label: function(context) {
+                            if (context.datasetIndex === 0) {
+                                return `Verbrauch: ${context.parsed.y.toFixed(1)} kWh`;
+                            } else {
+                                return `Kosten: ${context.parsed.y.toFixed(2)} €`;
+                            }
+                        }
+                    }
                 }
             },
             scales: {
+                x: {
+                    display: true,
+                    title: {
+                        display: true,
+                        text: 'Monat'
+                    },
+                    grid: {
+                        display: false
+                    }
+                },
                 y: {
-                    beginAtZero: true,
+                    type: 'linear',
+                    display: true,
+                    position: 'left',
+                    title: {
+                        display: true,
+                        text: 'Verbrauch (kWh)'
+                    },
                     grid: {
                         color: 'rgba(0,0,0,0.1)'
                     }
                 },
-                x: {
+                y1: {
+                    type: 'linear',
+                    display: true,
+                    position: 'right',
+                    title: {
+                        display: true,
+                        text: 'Kosten (€)'
+                    },
                     grid: {
-                        display: false
-                    }
+                        drawOnChartArea: false,
+                    },
                 }
             }
         }
     });
-
-    // Chart Period Buttons
-    document.querySelectorAll('[data-period]').forEach(btn => {
-        btn.addEventListener('click', function() {
-            // Remove active class from all buttons
-            document.querySelectorAll('[data-period]').forEach(b => b.classList.remove('active'));
-            // Add active class to clicked button
-            this.classList.add('active');
-            
-            // Here you would typically load new data
-            console.log('Loading data for period:', this.dataset.period);
-        });
-    });
+    
+    <?php endif; ?>
 
     // Animate stats cards on load
     const statsCards = document.querySelectorAll('.stats-card');
@@ -396,6 +587,14 @@ document.addEventListener('DOMContentLoaded', function() {
                 card.style.transform = 'translateY(0)';
             });
         }, index * 100);
+    });
+    
+    // Echte Trend-Anzeige basierend auf Daten
+    console.log('Dashboard Stats:', {
+        readings: <?= $stats['total_readings'] ?>,
+        currentMonth: <?= $stats['current_month_consumption'] ?>,
+        yearTotal: <?= $stats['year_consumption'] ?>,
+        devices: <?= $stats['total_devices'] ?>
     });
 });
 </script>

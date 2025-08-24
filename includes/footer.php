@@ -1,6 +1,6 @@
 <?php
 // includes/footer.php
-// EINFACHER & SCHÖNER Footer für Stromtracker - STICKY am Bildschirmrand
+// Footer für Stromtracker - ohne Uhrzeit
 ?>
 
     </main>
@@ -61,39 +61,43 @@
                     </li>
                     <li class="mb-2">
                         <a href="tarife.php" class="text-decoration-none" style="color: var(--gray-400); transition: color 0.2s ease;">
-                            <i class="bi bi-receipt me-2"></i>Tarife
+                            <i class="bi bi-tags me-2"></i>Tarife
                         </a>
                     </li>
                 </ul>
             </div>
             
-            <!-- System Info -->
+            <!-- Info & Hilfe -->
             <div class="col-md-3 mb-4">
-                <h6 class="text-white mb-3">System Status</h6>
+                <h6 class="text-white mb-3">Hilfe & Support</h6>
                 <ul class="list-unstyled">
-                    <li class="mb-2 d-flex align-items-center">
-                        <i class="bi bi-check-circle text-success me-2"></i>
-                        <span style="color: var(--gray-400);">PHP <?= PHP_VERSION ?></span>
+                    <li class="mb-2">
+                        <a href="einstellungen.php" class="text-decoration-none" style="color: var(--gray-400);">
+                            <i class="bi bi-gear me-2"></i>Einstellungen
+                        </a>
                     </li>
-                    <li class="mb-2 d-flex align-items-center">
-                        <i class="bi bi-check-circle text-success me-2"></i>
-                        <span style="color: var(--gray-400);">MySQL aktiv</span>
+                    <li class="mb-2">
+                        <a href="profil.php" class="text-decoration-none" style="color: var(--gray-400);">
+                            <i class="bi bi-person me-2"></i>Profil
+                        </a>
                     </li>
-                    <li class="mb-2 d-flex align-items-center">
-                        <i class="bi bi-check-circle text-success me-2"></i>
-                        <span style="color: var(--gray-400);">Bootstrap 5.3</span>
+                    <li class="mb-2">
+                        <a href="#" class="text-decoration-none" style="color: var(--gray-400);">
+                            <i class="bi bi-question-circle me-2"></i>FAQ
+                        </a>
                     </li>
-                    <li class="mb-2 d-flex align-items-center">
-                        <i class="bi bi-clock text-energy me-2"></i>
-                        <span style="color: var(--gray-400);" id="live-clock"><?= date('d.m.Y H:i') ?></span>
+                    <li class="mb-2">
+                        <a href="#" class="text-decoration-none" style="color: var(--gray-400);">
+                            <i class="bi bi-shield-check me-2"></i>Datenschutz
+                        </a>
                     </li>
                 </ul>
             </div>
             
-            <!-- Quick Tools -->
+            <!-- Actions -->
             <div class="col-md-2 mb-4">
-                <h6 class="text-white mb-3">Tools</h6>
-                <div class="d-flex flex-column gap-2">
+                <h6 class="text-white mb-3">Aktionen</h6>
+                <div class="d-grid gap-2">
                     <button onclick="scrollToTop()" 
                             class="btn btn-outline-secondary btn-sm text-start" 
                             title="Nach oben">
@@ -167,27 +171,6 @@
 <script>
 document.addEventListener('DOMContentLoaded', function() {
     
-    // Live Clock Update
-    function updateClock() {
-        const now = new Date();
-        const timeString = now.toLocaleString('de-DE', {
-            day: '2-digit',
-            month: '2-digit', 
-            year: 'numeric',
-            hour: '2-digit',
-            minute: '2-digit'
-        });
-        
-        const clockElement = document.getElementById('live-clock');
-        if (clockElement) {
-            clockElement.textContent = timeString;
-        }
-    }
-    
-    // Update clock every minute
-    setInterval(updateClock, 60000);
-    updateClock();
-    
     // Theme Status Update
     function updateThemeStatus() {
         const theme = document.documentElement.getAttribute('data-theme') || 'light';
@@ -197,10 +180,10 @@ document.addEventListener('DOMContentLoaded', function() {
         }
     }
     
-    // Update theme status initially and on changes
+    // Initialize theme status
     updateThemeStatus();
     
-    // Watch for theme changes
+    // Listen for theme changes
     const observer = new MutationObserver(function(mutations) {
         mutations.forEach(function(mutation) {
             if (mutation.type === 'attributes' && mutation.attributeName === 'data-theme') {
@@ -214,139 +197,55 @@ document.addEventListener('DOMContentLoaded', function() {
         attributeFilter: ['data-theme']
     });
     
-    // Page Load Time
-    function showPageLoadTime() {
-        const loadTime = Math.round(performance.now());
-        const loadTimeElement = document.getElementById('page-load-time');
-        if (loadTimeElement) {
-            loadTimeElement.textContent = `${loadTime}ms`;
+    // Page Load Performance
+    function updatePerformanceInfo() {
+        const loadTime = performance.timing ? 
+            ((performance.timing.loadEventEnd - performance.timing.navigationStart) / 1000).toFixed(2) : 
+            'N/A';
+        
+        const perfElement = document.getElementById('page-load-time');
+        if (perfElement) {
+            perfElement.innerHTML = `${loadTime}s geladen`;
         }
     }
     
-    // Show load time after everything is loaded
+    // Update performance info when page is fully loaded
     if (document.readyState === 'complete') {
-        showPageLoadTime();
+        updatePerformanceInfo();
     } else {
-        window.addEventListener('load', showPageLoadTime);
+        window.addEventListener('load', updatePerformanceInfo);
     }
     
-    // Scroll to Top Button
-    const scrollTopBtn = document.getElementById('scrollTopBtn');
+    // Scroll to Top Functionality
+    const scrollBtn = document.getElementById('scrollTopBtn');
     
-    function toggleScrollButton() {
+    // Show/hide button based on scroll position
+    window.addEventListener('scroll', function() {
         if (window.pageYOffset > 300) {
-            scrollTopBtn.style.opacity = '1';
-            scrollTopBtn.style.visibility = 'visible';
+            scrollBtn.style.opacity = '1';
+            scrollBtn.style.visibility = 'visible';
         } else {
-            scrollTopBtn.style.opacity = '0';
-            scrollTopBtn.style.visibility = 'hidden';
+            scrollBtn.style.opacity = '0';
+            scrollBtn.style.visibility = 'hidden';
         }
-    }
-    
-    // Show/hide scroll button on scroll
-    window.addEventListener('scroll', toggleScrollButton);
-    toggleScrollButton(); // Initial check
-    
-    // Footer Link Hover Effects
-    const footerLinks = document.querySelectorAll('footer a');
-    footerLinks.forEach(link => {
-        link.addEventListener('mouseenter', function() {
-            this.style.color = 'var(--energy)';
-        });
-        
-        link.addEventListener('mouseleave', function() {
-            this.style.color = 'var(--gray-400)';
-        });
-    });
-    
-    // Energy Indicator Animation (Random delays)
-    const indicators = document.querySelectorAll('.energy-indicator');
-    indicators.forEach(indicator => {
-        const delay = Math.random() * 2000;
-        indicator.style.animationDelay = delay + 'ms';
-    });
-    
-    // Auto-hide alerts after 5 seconds
-    setTimeout(function() {
-        const alerts = document.querySelectorAll('.alert');
-        alerts.forEach(alert => {
-            try {
-                const bsAlert = new bootstrap.Alert(alert);
-                bsAlert.close();
-            } catch (e) {
-                // Alert already closed or not found
-            }
-        });
-    }, 5000);
-    
-    // Initialize tooltips if any exist
-    const tooltipTriggerList = [].slice.call(document.querySelectorAll('[data-bs-toggle="tooltip"]'));
-    const tooltipList = tooltipTriggerList.map(function (tooltipTriggerEl) {
-        return new bootstrap.Tooltip(tooltipTriggerEl);
     });
 });
 
-// Global Functions (referenced by buttons)
+// Global Functions
 function scrollToTop() {
-    window.scrollTo({
-        top: 0,
-        behavior: 'smooth'
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+}
+
+// Hover effects for footer links
+document.querySelectorAll('footer a[style*="color: var(--gray-400)"]').forEach(link => {
+    link.addEventListener('mouseenter', function() {
+        this.style.color = 'var(--energy)';
     });
-}
-
-// Make sure theme toggle is available globally if not already defined
-if (typeof window.toggleTheme !== 'function') {
-    window.toggleTheme = function() {
-        const current = document.documentElement.getAttribute('data-theme') || 'light';
-        const newTheme = current === 'dark' ? 'light' : 'dark';
-        
-        document.documentElement.setAttribute('data-theme', newTheme);
-        localStorage.setItem('theme', newTheme);
-        
-        // Update theme icon if it exists
-        const icon = document.getElementById('themeIcon');
-        if (icon) {
-            icon.className = newTheme === 'dark' ? 'bi bi-sun' : 'bi bi-moon-stars';
-        }
-        
-        console.log('Theme switched to:', newTheme);
-    };
-}
-
-// Keyboard Shortcuts
-document.addEventListener('keydown', function(e) {
-    // Ctrl/Cmd + K for quick actions
-    if ((e.ctrlKey || e.metaKey) && e.key === 'k') {
-        e.preventDefault();
-        // Focus search if available, or show quick actions
-        const searchInput = document.querySelector('input[type="search"]');
-        if (searchInput) {
-            searchInput.focus();
-        }
-    }
     
-    // Ctrl/Cmd + T for theme toggle
-    if ((e.ctrlKey || e.metaKey) && e.key === 't') {
-        e.preventDefault();
-        toggleTheme();
-    }
-    
-    // Home key to scroll to top
-    if (e.key === 'Home' && !e.target.matches('input, textarea')) {
-        e.preventDefault();
-        scrollToTop();
-    }
+    link.addEventListener('mouseleave', function() {
+        this.style.color = 'var(--gray-400)';
+    });
 });
-
-// Development Info (nur im Debug-Modus)
-<?php if (defined('DEBUG') && DEBUG): ?>
-console.group('🔧 Stromtracker Debug Info');
-console.log('📄 Page:', window.location.pathname);
-console.log('🎨 Theme:', document.documentElement.getAttribute('data-theme') || 'light');
-console.log('⚡ PHP Version:', '<?= PHP_VERSION ?>');
-console.log('⏱️ Load Time:', Math.round(performance.now()) + 'ms');
-console.groupEnd();
-<?php endif; ?>
 </script>
 
 </body>

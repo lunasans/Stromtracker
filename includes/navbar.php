@@ -1,5 +1,5 @@
 <?php
-// includes/navbar.php - Erweitert mit Profilbild-Support & Dark Mode Fix
+// includes/navbar.php - Erweiterte Navigation mit Profilbild-Support
 // Navigation für eingeloggte User
 
 require_once __DIR__ . '/../config/database.php';
@@ -8,7 +8,7 @@ $user = Auth::getUser();
 $currentPage = basename($_SERVER['PHP_SELF'], '.php');
 
 // =============================================================================
-// AVATAR-FUNKTIONEN (nur wenn noch nicht definiert)
+// AVATAR-FUNKTIONEN
 // =============================================================================
 
 if (!class_exists('ProfileImageHandler')) {
@@ -34,14 +34,15 @@ if (!class_exists('ProfileImageHandler')) {
 }
 
 /**
- * User-Avatar rendern (nur wenn noch nicht definiert)
+ * User-Avatar rendern
  */
 if (!function_exists('renderUserAvatar')) {
     function renderUserAvatar($user, $size = 'medium') {
         $sizes = [
-            'small' => '24px',
-            'medium' => '40px', 
-            'large' => '60px'
+            'small' => '28px',
+            'medium' => '36px', 
+            'large' => '48px',
+            'xlarge' => '60px'
         ];
         
         $avatarSize = $sizes[$size] ?? $sizes['medium'];
@@ -50,106 +51,140 @@ if (!function_exists('renderUserAvatar')) {
         if ($imageUrl) {
             return "<img src='" . htmlspecialchars($imageUrl) . "' 
                          alt='Profilbild' 
+                         class='user-avatar'
                          style='width: {$avatarSize}; height: {$avatarSize}; 
                                 border-radius: 50%; object-fit: cover; 
                                 border: 2px solid var(--energy); 
-                                box-shadow: 0 2px 4px rgba(0,0,0,0.1);'>";
+                                box-shadow: 0 2px 8px rgba(245, 158, 11, 0.3);
+                                transition: all 0.3s ease;'>";
         } else {
-            $initial = strtoupper(substr($user['name'] ?? 'U', 0, 1));
-            return "<div style='width: {$avatarSize}; height: {$avatarSize}; 
+            $initial = strtoupper(substr($user['name'] ?? explode('@', $user['email'])[0], 0, 1));
+            return "<div class='user-avatar user-avatar-placeholder'
+                         style='width: {$avatarSize}; height: {$avatarSize}; 
                                 background: linear-gradient(135deg, var(--energy), #d97706); 
                                 border-radius: 50%; display: flex; 
                                 align-items: center; justify-content: center; 
                                 color: white; font-weight: bold; 
-                                font-size: calc({$avatarSize} * 0.4);
-                                box-shadow: 0 2px 4px rgba(0,0,0,0.1);'>{$initial}</div>";
+                                font-size: calc({$avatarSize} * 0.45);
+                                box-shadow: 0 2px 8px rgba(245, 158, 11, 0.3);
+                                transition: all 0.3s ease;'>{$initial}</div>";
         }
     }
 }
+
+/**
+ * Escape Funktion
+ */
+if (!function_exists('escape')) {
+    function escape($string) {
+        return htmlspecialchars($string, ENT_QUOTES, 'UTF-8');
+    }
+}
+
+// Breadcrumb-Definitionen
+$breadcrumbs = [
+    'dashboard' => 'Dashboard',
+    'geraete' => 'Geräte-Verwaltung',
+    'zaehlerstand' => 'Zählerstände',
+    'tarife' => 'Tarif-Verwaltung',
+    'auswertung' => 'Auswertungen & Charts',
+    'profil' => 'Mein Profil',
+    'einstellungen' => 'Einstellungen'
+];
 ?>
 
-<nav class="navbar navbar-expand-lg navbar-dark bg-dark">
+<nav class="navbar navbar-expand-lg navbar-dark bg-primary shadow-sm">
     <div class="container-fluid">
         <!-- Logo/Brand -->
-        <a class="navbar-brand" href="dashboard.php">
-            <span class="energy-indicator d-inline-block"></span>
-            ⚡ Stromtracker
+        <a class="navbar-brand d-flex align-items-center" href="dashboard.php">
+            <span class="energy-indicator me-2"></span>
+            <i class="bi bi-lightning-charge me-2"></i>
+            <span class="fw-bold">Stromtracker</span>
         </a>
         
         <!-- Mobile Toggle -->
-        <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#navbarNav">
+        <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#navbarNav" 
+                aria-controls="navbarNav" aria-expanded="false" aria-label="Toggle navigation">
             <span class="navbar-toggler-icon"></span>
         </button>
         
         <!-- Navigation Items -->
         <div class="collapse navbar-collapse" id="navbarNav">
+            <!-- Main Navigation -->
             <ul class="navbar-nav me-auto">
                 <li class="nav-item">
                     <a class="nav-link <?= $currentPage === 'dashboard' ? 'active' : '' ?>" href="dashboard.php">
-                        <i class="bi bi-house-door"></i> Dashboard
+                        <i class="bi bi-house-door me-1"></i> Dashboard
                     </a>
                 </li>
                 <li class="nav-item">
                     <a class="nav-link <?= $currentPage === 'geraete' ? 'active' : '' ?>" href="geraete.php">
-                        <i class="bi bi-lightning"></i> Geräte
+                        <i class="bi bi-cpu me-1"></i> Geräte
                     </a>
                 </li>
                 <li class="nav-item">
                     <a class="nav-link <?= $currentPage === 'zaehlerstand' ? 'active' : '' ?>" href="zaehlerstand.php">
-                        <i class="bi bi-speedometer2"></i> Zählerstand
+                        <i class="bi bi-speedometer2 me-1"></i> Zählerstand
                     </a>
                 </li>
                 <li class="nav-item">
                     <a class="nav-link <?= $currentPage === 'tarife' ? 'active' : '' ?>" href="tarife.php">
-                        <i class="bi bi-receipt"></i> Tarife
+                        <i class="bi bi-tags me-1"></i> Tarife
                     </a>
                 </li>
                 <li class="nav-item">
                     <a class="nav-link <?= $currentPage === 'auswertung' ? 'active' : '' ?>" href="auswertung.php">
-                        <i class="bi bi-bar-chart"></i> Auswertung
+                        <i class="bi bi-bar-chart me-1"></i> Auswertung
                     </a>
                 </li>
             </ul>
             
             <!-- User Menu -->
             <ul class="navbar-nav">
-                <!-- Live-Status -->
-                <li class="nav-item d-flex align-items-center me-3">
-                    <span class="energy-indicator"></span>
-                    <small class="text-light">System aktiv</small>
+                <!-- System Status -->
+                <li class="nav-item d-flex align-items-center me-3 d-none d-lg-flex">
+                    <span class="energy-indicator me-2"></span>
+                    <small style="color: rgba(255, 255, 255, 0.8) !important;">System aktiv</small>
                 </li>
                 
-                <!-- User Dropdown -->
+                <!-- User Dropdown mit Profilbild -->
                 <li class="nav-item dropdown">
-                    <a class="nav-link dropdown-toggle d-flex align-items-center" 
-                       href="#" role="button" data-bs-toggle="dropdown" 
-                       style="gap: 0.5rem;">
+                    <a class="nav-link dropdown-toggle user-menu-trigger d-flex align-items-center p-2" 
+                       href="#" role="button" data-bs-toggle="dropdown" aria-expanded="false">
                         
                         <!-- Profilbild/Avatar -->
-                        <?= renderUserAvatar($user, 'medium') ?>
+                        <div class="me-2">
+                            <?= renderUserAvatar($user, 'medium') ?>
+                        </div>
                         
-                        <!-- User-Info -->
-                        <div class="d-none d-md-block text-start">
-                            <div style="font-size: 0.875rem; font-weight: 500;">
+                        <!-- User-Info (nur auf Desktop) -->
+                        <div class="d-none d-lg-block text-start user-info-header">
+                            <div class="user-display-name">
                                 <?= escape($user['name'] ?? explode('@', $user['email'])[0]) ?>
                             </div>
-                            <div style="font-size: 0.75rem; opacity: 0.7;">
-                                Online
+                            <div class="user-display-status">
+                                <i class="bi bi-circle-fill me-1"></i>Online
                             </div>
                         </div>
                     </a>
                     
-                    <ul class="dropdown-menu dropdown-menu-end" style="min-width: 280px;">
+                    <ul class="dropdown-menu dropdown-menu-end user-dropdown">
                         <!-- User-Header im Dropdown -->
-                        <li class="dropdown-header">
+                        <li class="dropdown-header user-dropdown-header">
                             <div class="d-flex align-items-center">
-                                <?= renderUserAvatar($user, 'large') ?>
-                                <div class="ms-3">
-                                    <div class="fw-bold"><?= escape($user['name'] ?? 'Benutzer') ?></div>
-                                    <small class="text-muted"><?= escape($user['email']) ?></small>
+                                <div class="me-3">
+                                    <?= renderUserAvatar($user, 'large') ?>
+                                </div>
+                                <div class="flex-grow-1">
+                                    <div class="dropdown-user-name">
+                                        <?= escape($user['name'] ?? 'Benutzer') ?>
+                                    </div>
+                                    <small class="dropdown-user-email">
+                                        <?= escape($user['email']) ?>
+                                    </small>
                                     <div class="d-flex align-items-center mt-1">
-                                        <span class="energy-indicator" style="width: 8px; height: 8px; margin-right: 6px;"></span>
-                                        <small class="text-success">Online</small>
+                                        <span class="energy-indicator me-1" style="width: 6px; height: 6px;"></span>
+                                        <small class="dropdown-user-status">Online</small>
                                     </div>
                                 </div>
                             </div>
@@ -157,16 +192,16 @@ if (!function_exists('renderUserAvatar')) {
                         
                         <li><hr class="dropdown-divider"></li>
                         
-                        <!-- Navigation Links -->
+                        <!-- Profile & Settings -->
                         <li>
                             <a class="dropdown-item" href="profil.php">
-                                <i class="bi bi-person me-2"></i> 
+                                <i class="bi bi-person me-2 text-primary"></i> 
                                 Mein Profil
                             </a>
                         </li>
                         <li>
                             <a class="dropdown-item" href="einstellungen.php">
-                                <i class="bi bi-gear me-2"></i> 
+                                <i class="bi bi-gear me-2 text-secondary"></i> 
                                 Einstellungen
                             </a>
                         </li>
@@ -174,7 +209,9 @@ if (!function_exists('renderUserAvatar')) {
                         <li><hr class="dropdown-divider"></li>
                         
                         <!-- Quick Actions -->
-                        <li class="dropdown-header">Schnellaktionen</li>
+                        <li class="dropdown-header px-3 py-2">
+                            <small class="text-muted fw-semibold">SCHNELLAKTIONEN</small>
+                        </li>
                         <li>
                             <a class="dropdown-item" href="zaehlerstand.php">
                                 <i class="bi bi-plus-circle me-2 text-success"></i> 
@@ -183,7 +220,7 @@ if (!function_exists('renderUserAvatar')) {
                         </li>
                         <li>
                             <a class="dropdown-item" href="auswertung.php">
-                                <i class="bi bi-bar-chart me-2 text-primary"></i> 
+                                <i class="bi bi-bar-chart me-2 text-warning"></i> 
                                 Auswertung anzeigen
                             </a>
                         </li>
@@ -193,7 +230,7 @@ if (!function_exists('renderUserAvatar')) {
                         <!-- Theme Toggle -->
                         <li>
                             <a class="dropdown-item" href="#" onclick="toggleTheme(); return false;">
-                                <i id="themeIcon" class="bi bi-moon-stars me-2"></i> 
+                                <i id="themeIcon" class="bi bi-moon-stars me-2 text-info"></i> 
                                 Theme wechseln
                             </a>
                         </li>
@@ -202,7 +239,8 @@ if (!function_exists('renderUserAvatar')) {
                         
                         <!-- Logout -->
                         <li>
-                            <a class="dropdown-item text-danger" href="logout.php">
+                            <a class="dropdown-item text-danger" href="logout.php" 
+                               onclick="return confirm('Wirklich abmelden?')">
                                 <i class="bi bi-box-arrow-right me-2"></i> 
                                 Abmelden
                             </a>
@@ -214,91 +252,174 @@ if (!function_exists('renderUserAvatar')) {
     </div>
 </nav>
 
-<!-- Breadcrumb (optional) -->
-<nav aria-label="breadcrumb" class="breadcrumb-nav py-2">
+<!-- Breadcrumb Navigation -->
+<?php if (isset($breadcrumbs[$currentPage])): ?>
+<nav class="breadcrumb-nav py-2 bg-light border-bottom">
     <div class="container-fluid">
         <ol class="breadcrumb mb-0">
             <li class="breadcrumb-item">
-                <a href="dashboard.php" class="text-decoration-none breadcrumb-link">
-                    <i class="bi bi-house-door"></i> Home
+                <a href="dashboard.php" class="breadcrumb-link text-decoration-none">
+                    <i class="bi bi-house-door me-1"></i>Home
                 </a>
             </li>
-            <?php
-            $breadcrumbs = [
-                'dashboard' => 'Dashboard',
-                'geraete' => 'Geräte-Verwaltung', 
-                'zaehlerstand' => 'Zählerstand erfassen',
-                'tarife' => 'Tarif-Verwaltung',
-                'auswertung' => 'Auswertung & Charts',
-                'profil' => 'Mein Profil',
-                'einstellungen' => 'Einstellungen'
-            ];
-            
-            if (isset($breadcrumbs[$currentPage]) && $currentPage !== 'dashboard') {
-                echo '<li class="breadcrumb-item active">' . $breadcrumbs[$currentPage] . '</li>';
-            }
-            ?>
+            <?php if ($currentPage !== 'dashboard'): ?>
+                <li class="breadcrumb-item active" aria-current="page">
+                    <?= $breadcrumbs[$currentPage] ?>
+                </li>
+            <?php endif; ?>
         </ol>
     </div>
 </nav>
+<?php endif; ?>
 
-<!-- Custom Navbar Styles -->
+<!-- KORRIGIERTE Custom Navbar Styles -->
 <style>
-.navbar-nav .dropdown-menu {
-    border: none;
-    box-shadow: 0 10px 25px rgba(0, 0, 0, 0.15);
-    border-radius: 12px;
-    padding: 0.5rem 0;
+/* ======================================
+   WICHTIGE CSS-FIXES FÜR SICHTBARKEIT 
+   ====================================== */
+
+/* User Display Name - KORRIGIERT */
+.user-display-name {
+    font-size: 0.875rem !important;
+    font-weight: 600 !important;
+    color: #ffffff !important;
+    line-height: 1.2 !important;
 }
 
-.dropdown-header {
-    padding: 0.75rem 1rem;
-    background: var(--gray-50);
-    border-bottom: 1px solid var(--gray-200);
-    margin-bottom: 0.5rem;
+/* User Display Status - KORRIGIERT */
+.user-display-status {
+    font-size: 0.75rem !important;
+    color: rgba(255, 255, 255, 0.8) !important;
+    line-height: 1 !important;
+}
+
+.user-display-status .bi-circle-fill {
+    color: #10b981 !important;
+    font-size: 0.5rem !important;
+}
+
+/* Active Navigation Links - KORRIGIERT */
+.navbar-nav .nav-link.active {
+    background: rgba(245, 158, 11, 0.3) !important;
+    color: #ffffff !important;
+    font-weight: 600 !important;
+    border-radius: 8px !important;
+    position: relative;
+}
+
+.navbar-nav .nav-link.active::after {
+    content: '';
+    position: absolute;
+    bottom: -2px;
+    left: 50%;
+    transform: translateX(-50%);
+    width: 20px;
+    height: 2px;
+    background: var(--energy);
+    border-radius: 1px;
+}
+
+/* Navigation Link Hover - KORRIGIERT */
+.navbar-nav .nav-link:not(.active):hover {
+    background: rgba(255, 255, 255, 0.1) !important;
+    color: #ffffff !important;
+    border-radius: 8px !important;
+    transform: translateY(-1px);
+}
+
+/* Dropdown User Info - KORRIGIERT */
+.dropdown-user-name {
+    font-weight: bold !important;
+    color: white !important;
+    font-size: 1rem !important;
+}
+
+.dropdown-user-email {
+    color: rgba(255, 255, 255, 0.8) !important;
+}
+
+.dropdown-user-status {
+    color: #10b981 !important;
+    font-weight: 500 !important;
+}
+
+/* User Menu Trigger - KORRIGIERT */
+.user-menu-trigger {
+    border-radius: 12px !important;
+    transition: all 0.3s ease !important;
+    border: 1px solid transparent !important;
+    color: #ffffff !important;
+}
+
+.user-menu-trigger:hover,
+.user-menu-trigger:focus {
+    background: rgba(255, 255, 255, 0.1) !important;
+    border-color: rgba(255, 255, 255, 0.2) !important;
+    transform: translateY(-1px) !important;
+    color: #ffffff !important;
+}
+
+/* User Avatar Hover-Effekte */
+.user-avatar:hover {
+    transform: scale(1.1) !important;
+    box-shadow: 0 4px 12px rgba(245, 158, 11, 0.4) !important;
+}
+
+/* Dropdown Styling */
+.user-dropdown {
+    min-width: 320px;
+    border: none;
+    box-shadow: 0 10px 30px rgba(0, 0, 0, 0.15);
+    border-radius: 16px;
+    padding: 0;
+    margin-top: 8px;
+}
+
+.user-dropdown-header {
+    padding: 1rem;
+    background: linear-gradient(135deg, var(--energy), #d97706);
+    color: white;
+    border-radius: 16px 16px 0 0;
+    margin-bottom: 0;
 }
 
 .dropdown-item {
-    padding: 0.5rem 1rem;
+    padding: 0.75rem 1rem;
     transition: all 0.2s ease;
     border-radius: 0;
+    font-size: 0.875rem;
 }
 
 .dropdown-item:hover {
     background: var(--gray-50);
     transform: translateX(4px);
+    color: var(--gray-700);
 }
 
 .dropdown-item.text-danger:hover {
-    background: rgba(var(--danger), 0.1);
-    color: var(--danger) !important;
+    background: rgba(239, 68, 68, 0.1);
+    color: #ef4444 !important;
 }
 
+.dropdown-header {
+    background: var(--gray-50);
+    margin: 0;
+    border-top: 1px solid var(--gray-200);
+    border-bottom: 1px solid var(--gray-200);
+}
+
+/* Navbar Brand Styling */
 .navbar-brand {
     font-weight: 700;
     font-size: 1.25rem;
-    transition: all 0.2s ease;
+    transition: all 0.3s ease;
+    padding: 0.5rem 0;
+    color: white !important;
 }
 
 .navbar-brand:hover {
     transform: scale(1.05);
-}
-
-.nav-link {
-    font-weight: 500;
-    transition: all 0.2s ease;
-    border-radius: 6px;
-    margin: 0 2px;
-}
-
-.nav-link:hover {
-    background: rgba(255, 255, 255, 0.1);
-    transform: translateY(-1px);
-}
-
-.nav-link.active {
-    background: rgba(var(--energy), 0.2);
-    color: var(--energy) !important;
+    color: white !important;
 }
 
 /* Breadcrumb Styling */
@@ -312,6 +433,7 @@ if (!function_exists('renderUserAvatar')) {
     background: none;
     padding: 0;
     margin: 0;
+    font-size: 0.875rem;
 }
 
 .breadcrumb-link {
@@ -332,7 +454,45 @@ if (!function_exists('renderUserAvatar')) {
     color: var(--gray-400);
 }
 
-/* Dark Theme Breadcrumb */
+/* Energy Indicator Animation */
+.energy-indicator {
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    background-color: var(--energy);
+    animation: pulse 2s infinite;
+    display: inline-block;
+}
+
+@keyframes pulse {
+    0% { 
+        box-shadow: 0 0 0 0 rgba(245, 158, 11, 0.7); 
+    }
+    70% { 
+        box-shadow: 0 0 0 6px rgba(245, 158, 11, 0); 
+    }
+    100% { 
+        box-shadow: 0 0 0 0 rgba(245, 158, 11, 0); 
+    }
+}
+
+/* Dark Theme Adaptations - KORRIGIERT */
+[data-theme="dark"] .navbar-dark {
+    background: var(--gray-800) !important;
+}
+
+[data-theme="dark"] .user-display-name {
+    color: #ffffff !important;
+}
+
+[data-theme="dark"] .user-display-status {
+    color: rgba(255, 255, 255, 0.8) !important;
+}
+
+[data-theme="dark"] .user-menu-trigger {
+    color: #ffffff !important;
+}
+
 [data-theme="dark"] .breadcrumb-nav {
     background: var(--gray-800);
     border-color: var(--gray-700);
@@ -350,158 +510,69 @@ if (!function_exists('renderUserAvatar')) {
     color: var(--gray-200);
 }
 
-[data-theme="dark"] .breadcrumb-item + .breadcrumb-item::before {
-    color: var(--gray-500);
-}
-
-[data-theme="dark"] .dropdown-header {
-    background: var(--gray-700);
-    border-color: var(--gray-600);
-    color: var(--gray-300);
-}
-
-[data-theme="dark"] .dropdown-item:hover {
-    background: var(--gray-700);
-    color: white;
-}
-
-[data-theme="dark"] .dropdown-menu {
-    background: var(--gray-100) !important;
-    border: 1px solid var(--gray-300) !important;
-    color: var(--gray-700) !important;
+[data-theme="dark"] .user-dropdown {
+    background: var(--gray-100);
+    border-color: var(--gray-300);
 }
 
 [data-theme="dark"] .dropdown-item {
-    color: var(--gray-700) !important;
+    color: var(--gray-700);
 }
 
 [data-theme="dark"] .dropdown-item:hover {
-    background: var(--gray-200) !important;
-    color: var(--gray-700) !important;
-}
-
-[data-theme="dark"] .dropdown-item.text-danger {
-    color: #ef4444 !important;
-}
-
-[data-theme="dark"] .dropdown-item.text-danger:hover {
-    background: rgba(239, 68, 68, 0.1) !important;
-    color: #ef4444 !important;
+    background: var(--gray-200);
+    color: var(--gray-700);
 }
 
 [data-theme="dark"] .dropdown-header {
-    background: var(--gray-200) !important;
-    border-bottom: 1px solid var(--gray-300) !important;
-    color: var(--gray-700) !important;
+    background: var(--gray-200);
+    border-color: var(--gray-300);
 }
 
-[data-theme="dark"] .dropdown-header .fw-bold {
-    color: var(--gray-700) !important;
-}
-
-[data-theme="dark"] .dropdown-header .text-muted {
-    color: var(--gray-500) !important;
-}
-
-[data-theme="dark"] .dropdown-header .text-success {
-    color: #10b981 !important;
-}
-
-[data-theme="dark"] .dropdown-divider {
-    border-color: var(--gray-300) !important;
-    opacity: 1;
-}
-
-[data-theme="dark"] .text-light {
-    color: var(--gray-300) !important;
-}
-
-/* Mobile Optimizations */
+/* Mobile Optimierungen */
 @media (max-width: 768px) {
-    .dropdown-menu {
-        position: static !important;
-        transform: none !important;
-        border: none;
-        box-shadow: none;
-        background: var(--white);
-        margin-top: 0.5rem;
+    .user-dropdown {
+        min-width: 280px;
+        right: 1rem !important;
+        left: auto !important;
+    }
+    
+    .navbar-brand {
+        font-size: 1.1rem;
+    }
+    
+    .user-display-name {
+        font-size: 0.8rem !important;
+    }
+    
+    .user-display-status {
+        font-size: 0.7rem !important;
+    }
+    
+    .nav-link {
+        margin: 2px 0;
+        border-radius: 6px;
+        color: rgba(255, 255, 255, 0.9) !important;
+    }
+    
+    .nav-link.active {
+        background: rgba(245, 158, 11, 0.3) !important;
+        color: #ffffff !important;
     }
     
     .dropdown-item {
-        color: var(--gray-700);
-    }
-    
-    .dropdown-item:hover {
-        background: var(--gray-50);
-        color: var(--gray-700);
-    }
-    
-    .dropdown-header {
-        background: var(--gray-50);
-        border-color: var(--gray-200);
-        color: var(--gray-700);
-    }
-    
-    /* Dark Mode Mobile Overrides */
-    [data-theme="dark"] .dropdown-menu {
-        background: var(--gray-100) !important;
-        border: 1px solid var(--gray-300) !important;
-    }
-    
-    [data-theme="dark"] .dropdown-item {
-        color: var(--gray-700) !important;
-    }
-    
-    [data-theme="dark"] .dropdown-item:hover {
-        background: var(--gray-200) !important;
-        color: var(--gray-700) !important;
-    }
-    
-    [data-theme="dark"] .dropdown-header {
-        background: var(--gray-200) !important;
-        border-color: var(--gray-300) !important;
-        color: var(--gray-700) !important;
-    }
-    
-    [data-theme="dark"] .dropdown-item.text-danger:hover {
-        background: rgba(239, 68, 68, 0.1) !important;
-        color: #ef4444 !important;
-    }
-    
-    .breadcrumb-nav {
-        padding: 0.5rem 0;
-    }
-    
-    .breadcrumb {
-        font-size: 0.875rem;
+        padding: 0.6rem 1rem;
     }
 }
 
-/* Avatar Hover-Effekt */
-.nav-link img,
-.nav-link > div {
-    transition: all 0.2s ease;
-}
-
-.nav-link:hover img,
-.nav-link:hover > div {
-    transform: scale(1.1);
-}
-
-/* Energy Indicator Animation */
-.energy-indicator {
-    animation: pulse 2s infinite;
-}
-
-@keyframes pulse {
-    0% { 
-        box-shadow: 0 0 0 0 rgba(245, 158, 11, 0.7); 
+@media (max-width: 576px) {
+    .user-dropdown {
+        min-width: 260px;
+        right: 0.5rem !important;
     }
-    70% { 
-        box-shadow: 0 0 0 10px rgba(245, 158, 11, 0); 
-    }
-    100% { 
-        box-shadow: 0 0 0 0 rgba(245, 158, 11, 0); 
+    
+    .user-dropdown-header {
+        padding: 0.75rem;
     }
 }
 </style>
@@ -510,14 +581,14 @@ if (!function_exists('renderUserAvatar')) {
 <script>
 document.addEventListener('DOMContentLoaded', function() {
     
-    // Theme Icon aktualisieren
+    // Theme Icon aktualisieren beim Laden
     const savedTheme = localStorage.getItem('theme') || 'light';
     const themeIcon = document.getElementById('themeIcon');
     if (themeIcon) {
-        themeIcon.className = savedTheme === 'dark' ? 'bi bi-sun me-2' : 'bi bi-moon-stars me-2';
+        themeIcon.className = savedTheme === 'dark' ? 'bi bi-sun me-2 text-info' : 'bi bi-moon-stars me-2 text-info';
     }
     
-    // Dropdown Auto-Close bei Klick außerhalb
+    // Auto-close Dropdown bei Klick außerhalb
     document.addEventListener('click', function(e) {
         if (!e.target.closest('.dropdown')) {
             const dropdowns = document.querySelectorAll('.dropdown-menu.show');
@@ -528,13 +599,13 @@ document.addEventListener('DOMContentLoaded', function() {
         }
     });
     
-    // Mobile Navigation verbesserungen
+    // Mobile Navigation Verbesserungen
     const navbarToggler = document.querySelector('.navbar-toggler');
     const navbarCollapse = document.querySelector('.navbar-collapse');
     
     if (navbarToggler && navbarCollapse) {
         // Auto-close bei Link-Klick auf Mobile
-        const navLinks = navbarCollapse.querySelectorAll('.nav-link');
+        const navLinks = navbarCollapse.querySelectorAll('.nav-link:not(.dropdown-toggle)');
         navLinks.forEach(link => {
             link.addEventListener('click', () => {
                 if (window.innerWidth < 768 && navbarCollapse.classList.contains('show')) {
@@ -556,10 +627,9 @@ function toggleTheme() {
     // Icon aktualisieren
     const themeIcon = document.getElementById('themeIcon');
     if (themeIcon) {
-        themeIcon.className = newTheme === 'dark' ? 'bi bi-sun me-2' : 'bi bi-moon-stars me-2';
+        themeIcon.className = newTheme === 'dark' ? 'bi bi-sun me-2 text-info' : 'bi bi-moon-stars me-2 text-info';
     }
     
-    // Feedback
     console.log('Theme switched to:', newTheme);
 }
 </script>

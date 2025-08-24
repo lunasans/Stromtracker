@@ -90,11 +90,14 @@ class ProfileImageHandler {
         
         // Dateigröße prüfen
         if ($file['size'] > self::$maxFileSize) {
-            return 'Datei ist zu groß. Maximum: ' . (self::$maxFileSize / 1024 / 1024) . 'MB';
+            return 'Datei zu groß. Maximum: 2MB.';
         }
         
-        // Dateityp prüfen
-        if (!in_array($file['type'], self::$allowedTypes)) {
+        // MIME-Type prüfen
+        $finfo = new finfo(FILEINFO_MIME_TYPE);
+        $mimeType = $finfo->file($file['tmp_name']);
+        
+        if (!in_array($mimeType, self::$allowedTypes)) {
             return 'Nicht erlaubter Dateityp. Erlaubt: JPG, PNG, GIF';
         }
         
@@ -281,38 +284,6 @@ class ProfileImageHandler {
     }
 }
 
-/**
- * User-Avatar rendern
- */
-function renderUserAvatar($user, $size = 'medium') {
-    $sizes = [
-        'small' => '24px',
-        'medium' => '40px', 
-        'large' => '60px',
-        'xlarge' => '150px'
-    ];
-    
-    $avatarSize = $sizes[$size] ?? $sizes['medium'];
-    $imageUrl = ProfileImageHandler::getImageUrl($user['profile_image'] ?? '');
-    
-    if ($imageUrl) {
-        return "<img src='" . htmlspecialchars($imageUrl) . "' 
-                     alt='Profilbild' 
-                     style='width: {$avatarSize}; height: {$avatarSize}; 
-                            border-radius: 50%; object-fit: cover; 
-                            border: 4px solid var(--energy); 
-                            box-shadow: var(--shadow-lg);'>";
-    } else {
-        $initial = strtoupper(substr($user['name'] ?? 'U', 0, 1));
-        return "<div style='width: {$avatarSize}; height: {$avatarSize}; 
-                            background: linear-gradient(135deg, var(--energy), #d97706); 
-                            border-radius: 50%; display: flex; 
-                            align-items: center; justify-content: center; 
-                            color: white; font-weight: bold; 
-                            font-size: calc({$avatarSize} * 0.4);'>{$initial}</div>";
-    }
-}
-
 // Profil-Verarbeitung
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     
@@ -325,7 +296,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         
         switch ($action) {
             case 'update_profile':
-                // Profil-Daten aktualisieren (nur name und email - existierende Felder)
+                // Profil-Daten aktualisieren
                 $name = trim($_POST['name'] ?? '');
                 $email = trim($_POST['email'] ?? '');
                 
@@ -347,15 +318,37 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                         ], 'id = ?', [$userId]);
                         
                         if ($success) {
-                            // Session-Daten aktualisieren
-                            $_SESSION['user_email'] = $email;
-                            $_SESSION['user_name'] = $name;
-                            
-                            Flash::success('Profil wurde erfolgreich aktualisiert.');
+                            Flash::success('Profil erfolgreich aktualisiert.');
                         } else {
-                            Flash::error('Fehler beim Aktualisieren des Profils.');
+                            Flash::error('Fehler beim Speichern der Änderungen.');
                         }
                     }
+                }
+                break;
+                
+            case 'upload_image':
+                // Profilbild hochladen
+                if (isset($_FILES['profile_image']) && $_FILES['profile_image']['error'] !== UPLOAD_ERR_NO_FILE) {
+                    $result = ProfileImageHandler::handleUpload($_FILES['profile_image'], $userId);
+                    
+                    if ($result['success']) {
+                        Flash::success('Profilbild erfolgreich hochgeladen.');
+                    } else {
+                        Flash::error($result['error']);
+                    }
+                } else {
+                    Flash::error('Bitte wählen Sie eine Datei aus.');
+                }
+                break;
+                
+            case 'delete_image':
+                // Profilbild löschen
+                $success = ProfileImageHandler::deleteImage($userId);
+                
+                if ($success) {
+                    Flash::success('Profilbild erfolgreich gelöscht.');
+                } else {
+                    Flash::error('Fehler beim Löschen des Profilbildes.');
                 }
                 break;
                 
@@ -373,46 +366,22 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     Flash::error('Das neue Passwort muss mindestens 6 Zeichen lang sein.');
                 } else {
                     // Aktuelles Passwort prüfen
-                    $userRow = Database::fetchOne("SELECT password FROM users WHERE id = ?", [$userId]);
+                    $userData = Database::fetchOne("SELECT password FROM users WHERE id = ?", [$userId]);
                     
-                    if (!$userRow || !password_verify($currentPassword, $userRow['password'])) {
-                        Flash::error('Das aktuelle Passwort ist falsch.');
-                    } else {
+                    if ($userData && password_verify($currentPassword, $userData['password'])) {
                         $hashedPassword = password_hash($newPassword, PASSWORD_DEFAULT);
                         $success = Database::update('users', [
                             'password' => $hashedPassword
                         ], 'id = ?', [$userId]);
                         
                         if ($success) {
-                            Flash::success('Passwort wurde erfolgreich geändert.');
+                            Flash::success('Passwort erfolgreich geändert.');
                         } else {
                             Flash::error('Fehler beim Ändern des Passworts.');
                         }
-                    }
-                }
-                break;
-                
-            case 'upload_image':
-                // Profilbild hochladen
-                if (!isset($_FILES['profile_image']) || $_FILES['profile_image']['error'] === UPLOAD_ERR_NO_FILE) {
-                    Flash::error('Bitte wählen Sie eine Bilddatei aus.');
-                } else {
-                    $result = ProfileImageHandler::handleUpload($_FILES['profile_image'], $userId);
-                    
-                    if ($result['success']) {
-                        Flash::success('Profilbild wurde erfolgreich hochgeladen.');
                     } else {
-                        Flash::error($result['error']);
+                        Flash::error('Das aktuelle Passwort ist falsch.');
                     }
-                }
-                break;
-                
-            case 'delete_image':
-                // Profilbild löschen
-                if (ProfileImageHandler::deleteImage($userId)) {
-                    Flash::success('Profilbild wurde erfolgreich gelöscht.');
-                } else {
-                    Flash::error('Fehler beim Löschen des Profilbilds.');
                 }
                 break;
         }
@@ -423,26 +392,38 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     exit;
 }
 
-// Benutzer-Daten laden (nur existierende Felder)
-$userData = Database::fetchOne(
-    "SELECT * FROM users WHERE id = ?",
-    [$userId]
-);
+// User-Daten laden
+$userData = Database::fetchOne("SELECT * FROM users WHERE id = ?", [$userId]) ?: [];
 
-// Account-Statistiken
-$readingsResult = Database::fetchOne("SELECT COUNT(*) as count FROM meter_readings WHERE user_id = ?", [$userId]);
-$devicesResult = Database::fetchOne("SELECT COUNT(*) as count FROM devices WHERE user_id = ? AND is_active = 1", [$userId]);
-$tariffsResult = Database::fetchOne("SELECT COUNT(*) as count FROM tariff_periods WHERE user_id = ?", [$userId]);
-
+// Account-Statistiken für Info-Tab
 $accountStats = [
-    'created_at' => $userData['created_at'] ?? date('Y-m-d H:i:s'),
-    'total_readings' => $readingsResult['count'] ?? 0,
-    'total_devices' => $devicesResult['count'] ?? 0,
-    'total_tariffs' => $tariffsResult['count'] ?? 0
+    'total_readings' => 0,
+    'total_devices' => 0,
+    'total_tariffs' => 0,
+    'registration_date' => $userData['created_at'] ?? date('Y-m-d')
 ];
 
-// Berechne Tage seit Registrierung
-$daysSinceRegistration = max(1, floor((time() - strtotime($accountStats['created_at'])) / 86400));
+try {
+    $accountStats['total_readings'] = Database::fetchOne(
+        "SELECT COUNT(*) as count FROM meter_readings WHERE user_id = ?", 
+        [$userId]
+    )['count'] ?? 0;
+    
+    $accountStats['total_devices'] = Database::fetchOne(
+        "SELECT COUNT(*) as count FROM devices WHERE user_id = ?", 
+        [$userId]
+    )['count'] ?? 0;
+    
+    $accountStats['total_tariffs'] = Database::fetchOne(
+        "SELECT COUNT(*) as count FROM tariff_periods WHERE user_id = ?", 
+        [$userId]
+    )['count'] ?? 0;
+} catch (Exception $e) {
+    error_log("Account stats error: " . $e->getMessage());
+}
+
+// Tage seit Registrierung
+$daysSinceRegistration = floor((time() - strtotime($accountStats['registration_date'])) / 86400);
 
 include 'includes/header.php';
 include 'includes/navbar.php';
@@ -462,25 +443,24 @@ include 'includes/navbar.php';
                             <i class="bi bi-person-circle"></i>
                             Mein Profil
                         </h1>
-                        <p class="text-muted mb-0">Verwalten Sie Ihre persönlichen Daten und Einstellungen.</p>
+                        <p class="text-muted mb-0">
+                            Verwalten Sie Ihre persönlichen Daten und Account-Einstellungen.
+                        </p>
                     </div>
                     <div class="col-md-4 text-end">
-                        <div class="d-flex align-items-center justify-content-end gap-3">
-                            <div class="text-center">
-                                <div class="h4 text-energy mb-1"><?= $daysSinceRegistration ?></div>
-                                <small class="text-muted">Tage dabei</small>
-                            </div>
-                            
-                            <!-- Avatar -->
-                            <div class="position-relative">
-                                <?= renderUserAvatar($userData, 'large') ?>
-                                <div style="position: absolute; bottom: -2px; right: -2px; 
-                                           width: 20px; height: 20px; background: var(--success); 
-                                           border-radius: 50%; border: 2px solid white;
-                                           display: flex; align-items: center; justify-content: center;">
-                                    <i class="bi bi-check" style="font-size: 10px; color: white;"></i>
+                        <div class="profile-header-avatar">
+                            <?php
+                            $currentImage = ProfileImageHandler::getImageUrl($userData['profile_image']);
+                            if ($currentImage):
+                            ?>
+                                <img src="<?= htmlspecialchars($currentImage) ?>" 
+                                     alt="Profilbild" 
+                                     class="profile-header-image">
+                            <?php else: ?>
+                                <div class="profile-header-placeholder">
+                                    <?= strtoupper(substr($userData['name'] ?? 'U', 0, 1)) ?>
                                 </div>
-                            </div>
+                            <?php endif; ?>
                         </div>
                     </div>
                 </div>
@@ -491,38 +471,32 @@ include 'includes/navbar.php';
     <!-- Account-Statistiken -->
     <div class="row mb-4">
         <div class="col-md-3 mb-3">
-            <div class="stats-card primary">
+            <div class="stats-card success">
                 <div class="flex-between mb-3">
                     <i class="stats-icon bi bi-speedometer2"></i>
-                    <div class="small">
-                        Total
-                    </div>
+                    <div class="small">Erfasst</div>
                 </div>
                 <h3><?= $accountStats['total_readings'] ?></h3>
-                <p>Zählerstände erfasst</p>
+                <p>Zählerstände</p>
             </div>
         </div>
         
         <div class="col-md-3 mb-3">
-            <div class="stats-card success">
+            <div class="stats-card primary">
                 <div class="flex-between mb-3">
                     <i class="stats-icon bi bi-cpu"></i>
-                    <div class="small">
-                        Aktiv
-                    </div>
+                    <div class="small">Verwaltet</div>
                 </div>
                 <h3><?= $accountStats['total_devices'] ?></h3>
-                <p>Geräte verwaltet</p>
+                <p>Geräte registriert</p>
             </div>
         </div>
         
         <div class="col-md-3 mb-3">
             <div class="stats-card warning">
                 <div class="flex-between mb-3">
-                    <i class="stats-icon bi bi-receipt"></i>
-                    <div class="small">
-                        Tarife
-                    </div>
+                    <i class="stats-icon bi bi-tags"></i>
+                    <div class="small">Konfiguriert</div>
                 </div>
                 <h3><?= $accountStats['total_tariffs'] ?></h3>
                 <p>Tarife erstellt</p>
@@ -533,9 +507,7 @@ include 'includes/navbar.php';
             <div class="stats-card energy">
                 <div class="flex-between mb-3">
                     <i class="stats-icon bi bi-calendar-check"></i>
-                    <div class="small">
-                        Dabei seit
-                    </div>
+                    <div class="small">Dabei seit</div>
                 </div>
                 <h3><?= $daysSinceRegistration ?></h3>
                 <p>Tagen aktiv</p>
@@ -622,7 +594,7 @@ include 'includes/navbar.php';
                     </div>
                 </div>
                 
-                <!-- Profilbild Tab -->
+                <!-- Profilbild Tab - KORRIGIERT -->
                 <div class="tab-pane fade" id="profile-image" role="tabpanel">
                     <div class="card">
                         <div class="card-header">
@@ -649,7 +621,7 @@ include 'includes/navbar.php';
                                         <?php else: ?>
                                             <div class="profile-image-placeholder">
                                                 <i class="bi bi-person-circle"></i>
-                                                <div class="mt-2">Kein Profilbild</div>
+                                                <span class="placeholder-text">Kein Bild</span>
                                             </div>
                                         <?php endif; ?>
                                     </div>
@@ -723,7 +695,7 @@ include 'includes/navbar.php';
                         <div class="card-header">
                             <h5 class="mb-0">
                                 <i class="bi bi-shield-lock text-energy"></i>
-                                Passwort ändern
+                                Passwort & Sicherheit
                             </h5>
                         </div>
                         <div class="card-body">
@@ -731,9 +703,11 @@ include 'includes/navbar.php';
                                 <input type="hidden" name="csrf_token" value="<?= $csrfToken ?>">
                                 <input type="hidden" name="action" value="change_password">
                                 
-                                <div class="mb-3">
-                                    <label class="form-label">Aktuelles Passwort *</label>
-                                    <input type="password" class="form-control" name="current_password" required>
+                                <div class="row">
+                                    <div class="col-md-6 mb-3">
+                                        <label class="form-label">Aktuelles Passwort *</label>
+                                        <input type="password" class="form-control" name="current_password" required>
+                                    </div>
                                 </div>
                                 
                                 <div class="row">
@@ -741,7 +715,6 @@ include 'includes/navbar.php';
                                         <label class="form-label">Neues Passwort *</label>
                                         <input type="password" class="form-control" name="new_password" 
                                                minlength="6" required>
-                                        <div class="form-text">Mindestens 6 Zeichen</div>
                                     </div>
                                     
                                     <div class="col-md-6 mb-3">
@@ -821,17 +794,17 @@ include 'includes/navbar.php';
                                         </tr>
                                         <tr>
                                             <td><strong>Registriert:</strong></td>
-                                            <td><?= date('d.m.Y H:i', strtotime($accountStats['created_at'])) ?></td>
+                                            <td><?= date('d.m.Y', strtotime($accountStats['registration_date'])) ?></td>
                                         </tr>
                                         <tr>
-                                            <td><strong>Tage dabei:</strong></td>
-                                            <td><?= $daysSinceRegistration ?> Tage</td>
+                                            <td><strong>Aktiv seit:</strong></td>
+                                            <td><?= max(1, floor($daysSinceRegistration / 30)) ?> Monat(en)</td>
                                         </tr>
                                     </table>
                                 </div>
                                 
                                 <div class="col-md-6 mb-4">
-                                    <h6>Nutzungsstatistiken</h6>
+                                    <h6>Aktivitäts-Statistik</h6>
                                     <table class="table table-sm">
                                         <tr>
                                             <td><strong>Zählerstände:</strong></td>
@@ -846,8 +819,8 @@ include 'includes/navbar.php';
                                             <td><?= $accountStats['total_tariffs'] ?></td>
                                         </tr>
                                         <tr>
-                                            <td><strong>Ablesungen/Monat:</strong></td>
-                                            <td>⌀ <?= round($accountStats['total_readings'] / max(1, ceil($daysSinceRegistration / 30)), 1) ?></td>
+                                            <td><strong>Ø Aktivität:</strong></td>
+                                            <td><?= number_format(max(0.1, $accountStats['total_readings'] / max(1, $daysSinceRegistration / 30)), 1) ?></td>
                                         </tr>
                                     </table>
                                 </div>
@@ -876,8 +849,39 @@ include 'includes/navbar.php';
 
 <?php include 'includes/footer.php'; ?>
 
-<!-- Custom Styles für Profilbild -->
+<!-- KORRIGIERTE CSS Styles für Profilbild -->
 <style>
+/* Header Avatar */
+.profile-header-avatar {
+    display: flex;
+    justify-content: center;
+    align-items: center;
+}
+
+.profile-header-image {
+    width: 80px;
+    height: 80px;
+    border-radius: 50%;
+    object-fit: cover;
+    border: 3px solid var(--energy);
+    box-shadow: var(--shadow-lg);
+}
+
+.profile-header-placeholder {
+    width: 80px;
+    height: 80px;
+    border-radius: 50%;
+    background: linear-gradient(135deg, var(--energy), #d97706);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: white;
+    font-weight: bold;
+    font-size: 2rem;
+    box-shadow: var(--shadow-lg);
+}
+
+/* Profile Image Management */
 .profile-image-container {
     position: relative;
     display: inline-block;
@@ -890,6 +894,7 @@ include 'includes/navbar.php';
     object-fit: cover;
     border: 4px solid var(--energy);
     box-shadow: var(--shadow-lg);
+    transition: all 0.3s ease;
 }
 
 .profile-image-placeholder {
@@ -898,12 +903,38 @@ include 'includes/navbar.php';
     border-radius: 50%;
     background: var(--gray-100);
     display: flex;
-    flex-direction: column;
     align-items: center;
     justify-content: center;
     border: 2px dashed var(--gray-300);
     color: var(--gray-500);
-    font-size: 3rem;
+    font-size: 2.2rem; /* REDUZIERT von 3rem auf 2.2rem */
+    transition: all 0.3s ease;
+    position: relative;
+    cursor: pointer;
+}
+
+.profile-image-placeholder:hover {
+    border-color: var(--energy);
+    color: var(--energy);
+    background: rgba(245, 158, 11, 0.05);
+    transform: scale(1.02);
+}
+
+/* Text unter dem Icon - OPTIMIERT */
+.profile-image-placeholder .placeholder-text {
+    position: absolute;
+    bottom: 18px;
+    left: 50%;
+    transform: translateX(-50%);
+    font-size: 0.7rem; /* Sehr klein */
+    font-weight: 500;
+    white-space: nowrap;
+    text-align: center;
+    line-height: 1;
+    opacity: 0.7;
+    background: rgba(255, 255, 255, 0.9);
+    padding: 2px 6px;
+    border-radius: 8px;
 }
 
 .image-preview {
@@ -911,6 +942,7 @@ include 'includes/navbar.php';
     background: var(--gray-50);
     border-radius: var(--radius-lg);
     border: 1px solid var(--gray-200);
+    margin-top: 1rem;
 }
 
 .preview-image {
@@ -918,6 +950,7 @@ include 'includes/navbar.php';
     max-height: 200px;
     border-radius: var(--radius-lg);
     object-fit: cover;
+    border: 2px solid var(--energy);
 }
 
 .upload-form {
@@ -930,18 +963,39 @@ include 'includes/navbar.php';
 /* Drag & Drop Styling */
 .form-control[type="file"] {
     transition: all 0.3s ease;
+    border: 2px dashed var(--gray-300);
+    background: var(--gray-50);
+    padding: 1rem;
+    border-radius: var(--radius-lg);
 }
 
-.form-control[type="file"]:hover {
+.form-control[type="file"]:hover,
+.form-control[type="file"]:focus {
     border-color: var(--energy);
     box-shadow: 0 0 0 3px rgba(245, 158, 11, 0.1);
+    background: rgba(245, 158, 11, 0.02);
 }
 
 /* Dark Theme Support */
+[data-theme="dark"] .profile-header-placeholder {
+    background: linear-gradient(135deg, var(--energy), #d97706);
+}
+
 [data-theme="dark"] .profile-image-placeholder {
     background: var(--gray-700);
     border-color: var(--gray-600);
     color: var(--gray-400);
+}
+
+[data-theme="dark"] .profile-image-placeholder:hover {
+    border-color: var(--energy);
+    color: var(--energy);
+    background: rgba(245, 158, 11, 0.1);
+}
+
+[data-theme="dark"] .profile-image-placeholder .placeholder-text {
+    background: rgba(0, 0, 0, 0.7);
+    color: var(--gray-300);
 }
 
 [data-theme="dark"] .image-preview {
@@ -952,6 +1006,47 @@ include 'includes/navbar.php';
 [data-theme="dark"] .upload-form {
     background: var(--gray-800);
     border-color: var(--gray-600);
+}
+
+[data-theme="dark"] .form-control[type="file"] {
+    background: var(--gray-700);
+    border-color: var(--gray-600);
+    color: var(--gray-300);
+}
+
+[data-theme="dark"] .form-control[type="file"]:hover,
+[data-theme="dark"] .form-control[type="file"]:focus {
+    background: rgba(245, 158, 11, 0.05);
+    border-color: var(--energy);
+}
+
+/* Responsive Anpassungen */
+@media (max-width: 768px) {
+    .profile-header-image,
+    .profile-header-placeholder {
+        width: 60px;
+        height: 60px;
+    }
+    
+    .profile-header-placeholder {
+        font-size: 1.5rem;
+    }
+    
+    .profile-image-large,
+    .profile-image-placeholder {
+        width: 120px;
+        height: 120px;
+    }
+    
+    .profile-image-placeholder {
+        font-size: 1.8rem;
+    }
+    
+    .profile-image-placeholder .placeholder-text {
+        font-size: 0.65rem;
+        bottom: 15px;
+        padding: 1px 4px;
+    }
 }
 </style>
 

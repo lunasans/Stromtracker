@@ -402,6 +402,99 @@ include 'includes/navbar.php';
 .status-offline { background-color: #dc3545; }
 .status-unknown { background-color: #ffc107; }
 
+/* Chart-Container */
+.tasmota-charts {
+    background: rgba(248, 249, 250, 0.5);
+    border-radius: 8px;
+    padding: 15px;
+    margin: 10px 0;
+    min-height: 200px;
+}
+
+.chart-container {
+    position: relative;
+    height: 180px;
+    margin-bottom: 15px;
+}
+
+.chart-loading {
+    color: var(--gray-500);
+    font-size: 0.9em;
+}
+
+.chart-tabs {
+    display: flex;
+    gap: 5px;
+    margin-bottom: 10px;
+}
+
+.chart-tab {
+    background: rgba(40, 167, 69, 0.1);
+    border: 1px solid rgba(40, 167, 69, 0.3);
+    color: #28a745;
+    border-radius: 6px;
+    padding: 5px 10px;
+    font-size: 0.8em;
+    cursor: pointer;
+    transition: all 0.2s ease;
+}
+
+.chart-tab.active {
+    background: #28a745;
+    color: white;
+}
+
+.chart-tab:hover {
+    background: rgba(40, 167, 69, 0.2);
+}
+
+/* Zeitraum-Buttons */
+.btn-timerange.active {
+    background-color: var(--energy);
+    border-color: var(--energy);
+    color: white;
+}
+
+/* Aktuelle Werte kompakt */
+.current-values {
+    background: rgba(255, 255, 255, 0.8);
+    border-radius: 6px;
+    padding: 8px;
+    border: 1px solid rgba(0, 0, 0, 0.1);
+}
+
+.current-values strong {
+    font-size: 1.1em;
+}
+
+.current-values small {
+    font-size: 0.75em;
+}
+
+/* Auto-refresh Indicator */
+.refresh-indicator {
+    position: absolute;
+    top: 5px;
+    right: 5px;
+    width: 8px;
+    height: 8px;
+    background: #28a745;
+    border-radius: 50%;
+    opacity: 0;
+    transition: opacity 0.3s ease;
+}
+
+.refresh-indicator.active {
+    opacity: 1;
+    animation: pulse 2s infinite;
+}
+
+@keyframes pulse {
+    0% { opacity: 1; }
+    50% { opacity: 0.3; }
+    100% { opacity: 1; }
+}
+
 .control-buttons {
     display: flex;
     gap: 5px;
@@ -599,24 +692,47 @@ include 'includes/navbar.php';
                             </div>
                         </div>
                         
-                        <!-- Tasmota Energiedaten -->
+                        <!-- Tasmota Energiedaten mit Verlaufsdiagrammen -->
                         <?php if ($isTasmota && $energyData): ?>
-                            <div class="energy-grid">
-                                <div class="energy-item">
-                                    <span class="energy-value"><?= number_format($energyData['power'], 0) ?></span>
-                                    <div class="energy-label">Watt</div>
+                            <!-- Zeitraum-Auswahl -->
+                            <div class="d-flex justify-content-between align-items-center mb-2">
+                                <small class="text-muted">Live-Verlauf:</small>
+                                <div class="btn-group btn-group-sm" role="group">
+                                    <button type="button" class="btn btn-outline-primary btn-timerange active" 
+                                            data-device-id="<?= $device['id'] ?>" data-range="5">5m</button>
+                                    <button type="button" class="btn btn-outline-primary btn-timerange" 
+                                            data-device-id="<?= $device['id'] ?>" data-range="60">1h</button>
+                                    <button type="button" class="btn btn-outline-primary btn-timerange" 
+                                            data-device-id="<?= $device['id'] ?>" data-range="720">12h</button>
                                 </div>
-                                <div class="energy-item">
-                                    <span class="energy-value"><?= number_format($energyData['energy_today'], 2) ?></span>
-                                    <div class="energy-label">kWh heute</div>
+                            </div>
+                            
+                            <!-- Chart-Container -->
+                            <div class="tasmota-charts" id="charts-<?= $device['id'] ?>">
+                                <div class="chart-loading text-center py-3">
+                                    <i class="bi bi-hourglass-split"></i> Lade Daten...
                                 </div>
-                                <div class="energy-item">
-                                    <span class="energy-value"><?= number_format($energyData['voltage'], 0) ?></span>
-                                    <div class="energy-label">Volt</div>
-                                </div>
-                                <div class="energy-item">
-                                    <span class="energy-value"><?= number_format($energyData['current'], 2) ?></span>
-                                    <div class="energy-label">Ampere</div>
+                            </div>
+                            
+                            <!-- Aktuelle Werte (kompakt) -->
+                            <div class="current-values mt-2" id="current-values-<?= $device['id'] ?>">
+                                <div class="row text-center">
+                                    <div class="col-3">
+                                        <strong class="text-warning"><?= number_format($energyData['power'], 0) ?></strong><br>
+                                        <small class="text-muted">Watt</small>
+                                    </div>
+                                    <div class="col-3">
+                                        <strong class="text-info"><?= number_format($energyData['voltage'], 0) ?></strong><br>
+                                        <small class="text-muted">Volt</small>
+                                    </div>
+                                    <div class="col-3">
+                                        <strong class="text-danger"><?= number_format($energyData['current'], 2) ?></strong><br>
+                                        <small class="text-muted">A</small>
+                                    </div>
+                                    <div class="col-3">
+                                        <strong class="text-success"><?= number_format($energyData['energy_today'], 2) ?></strong><br>
+                                        <small class="text-muted">kWh</small>
+                                    </div>
                                 </div>
                             </div>
                             
@@ -625,7 +741,7 @@ include 'includes/navbar.php';
                                 <small class="text-muted">
                                     <i class="bi bi-clock"></i> 
                                     <?php if ($energyData['minutes_ago'] < 5): ?>
-                                        Vor <?= $energyData['minutes_ago'] ?> Min. • Live
+                                        Vor <?= $energyData['minutes_ago'] ?> Min. • <span class="text-success">Live</span>
                                     <?php elseif ($energyData['minutes_ago'] < 60): ?>
                                         Vor <?= $energyData['minutes_ago'] ?> Min.
                                     <?php else: ?>
@@ -1060,9 +1176,284 @@ setInterval(function() {
         // Seite nur neu laden wenn Tasmota-Geräte vorhanden
         const tasmotaDevices = document.querySelectorAll('.tasmota-device');
         if (tasmotaDevices.length > 0) {
-            // Optional: Nur bei Bedarf aktivieren
-            // window.location.reload();
+            // Charts refreshen statt komplette Seite
+            refreshTasmotaCharts();
         }
     }
 }, 60000);
+
+// =============================================================================
+// TASMOTA CHART FUNKTIONALITÄT
+// =============================================================================
+
+// Chart-Instanzen speichern
+const chartInstances = new Map();
+
+// Charts nach Seitenladung initialisieren
+document.addEventListener('DOMContentLoaded', function() {
+    // Alle Tasmota-Geräte mit Daten finden
+    document.querySelectorAll('.tasmota-charts').forEach(function(chartContainer) {
+        const deviceId = chartContainer.id.replace('charts-', '');
+        if (deviceId) {
+            initTasmotaChart(deviceId, '5'); // Standard: 5 Minuten
+        }
+    });
+    
+    // Zeitraum-Button Event Listeners
+    document.addEventListener('click', function(e) {
+        if (e.target.classList.contains('btn-timerange')) {
+            const deviceId = e.target.dataset.deviceId;
+            const timeRange = e.target.dataset.range;
+            
+            // Button-Status ändern
+            const buttonGroup = e.target.parentNode;
+            buttonGroup.querySelectorAll('.btn-timerange').forEach(btn => {
+                btn.classList.remove('active');
+            });
+            e.target.classList.add('active');
+            
+            // Chart neu laden
+            initTasmotaChart(deviceId, timeRange);
+        }
+    });
+});
+
+// Chart für Gerät initialisieren
+function initTasmotaChart(deviceId, timeRange = '60') {
+    const container = document.getElementById(`charts-${deviceId}`);
+    if (!container) return;
+    
+    // Loading anzeigen
+    container.innerHTML = `
+        <div class="chart-loading text-center py-3">
+            <i class="bi bi-hourglass-split"></i> Lade Verlaufsdaten...
+        </div>
+    `;
+    
+    // Chart-Typen definieren
+    const chartTypes = [
+        { key: 'power', label: 'Leistung', color: '#f59e0b', unit: 'W' },
+        { key: 'voltage', label: 'Spannung', color: '#3b82f6', unit: 'V' },
+        { key: 'current', label: 'Stromstärke', color: '#ef4444', unit: 'A' },
+        { key: 'energy', label: 'Energie', color: '#10b981', unit: 'kWh' }
+    ];
+    
+    // Container für Charts erstellen
+    container.innerHTML = `
+        <div class="refresh-indicator" id="refresh-${deviceId}"></div>
+        <div class="chart-tabs" id="chart-tabs-${deviceId}">
+            ${chartTypes.map((type, index) => 
+                `<button class="chart-tab ${index === 0 ? 'active' : ''}" 
+                         data-type="${type.key}" data-device="${deviceId}">
+                    ${type.label}
+                </button>`
+            ).join('')}
+        </div>
+        <div class="chart-container">
+            <canvas id="chart-canvas-${deviceId}"></canvas>
+        </div>
+    `;
+    
+    // Tab-Events
+    container.querySelectorAll('.chart-tab').forEach(tab => {
+        tab.addEventListener('click', function() {
+            const chartType = this.dataset.type;
+            const devId = this.dataset.device;
+            
+            // Tab-Status ändern
+            container.querySelectorAll('.chart-tab').forEach(t => t.classList.remove('active'));
+            this.classList.add('active');
+            
+            // Chart-Daten laden
+            loadChartData(devId, timeRange, chartType);
+        });
+    });
+    
+    // Ersten Chart laden (Leistung)
+    loadChartData(deviceId, timeRange, 'power');
+}
+
+// Chart-Daten von API laden
+function loadChartData(deviceId, timeRange, chartType) {
+    const refreshIndicator = document.getElementById(`refresh-${deviceId}`);
+    if (refreshIndicator) {
+        refreshIndicator.classList.add('active');
+    }
+    
+    fetch(`api/tasmota-chart-data.php?device_id=${deviceId}&timerange=${timeRange}&type=${chartType}`)
+        .then(response => response.json())
+        .then(data => {
+            if (data.success) {
+                createChart(deviceId, data);
+                updateCurrentValues(deviceId, data.current);
+            } else {
+                showChartError(deviceId, data.error || 'Fehler beim Laden der Daten');
+            }
+        })
+        .catch(error => {
+            console.error('Chart data error:', error);
+            showChartError(deviceId, 'Verbindungsfehler');
+        })
+        .finally(() => {
+            if (refreshIndicator) {
+                refreshIndicator.classList.remove('active');
+            }
+        });
+}
+
+// Chart erstellen/aktualisieren
+function createChart(deviceId, data) {
+    const canvas = document.getElementById(`chart-canvas-${deviceId}`);
+    if (!canvas) return;
+    
+    const ctx = canvas.getContext('2d');
+    
+    // Alten Chart zerstören falls vorhanden
+    const chartKey = `chart-${deviceId}`;
+    if (chartInstances.has(chartKey)) {
+        chartInstances.get(chartKey).destroy();
+    }
+    
+    // Neuen Chart erstellen
+    const chart = new Chart(ctx, {
+        type: 'line',
+        data: {
+            labels: data.chart.labels,
+            datasets: [{
+                label: `${data.chart.type} (${data.chart.unit})`,
+                data: data.chart.data,
+                borderColor: data.chart.color,
+                backgroundColor: data.chart.color + '20',
+                borderWidth: 2,
+                fill: true,
+                tension: 0.3,
+                pointRadius: 2,
+                pointHoverRadius: 4,
+                pointBackgroundColor: data.chart.color,
+                pointBorderColor: '#ffffff',
+                pointBorderWidth: 1
+            }]
+        },
+        options: {
+            responsive: true,
+            maintainAspectRatio: false,
+            interaction: {
+                intersect: false,
+                mode: 'index'
+            },
+            plugins: {
+                legend: {
+                    display: false
+                },
+                tooltip: {
+                    backgroundColor: 'rgba(0, 0, 0, 0.8)',
+                    titleColor: '#ffffff',
+                    bodyColor: '#ffffff',
+                    borderColor: data.chart.color,
+                    borderWidth: 1,
+                    cornerRadius: 6,
+                    displayColors: false,
+                    callbacks: {
+                        title: function(tooltipItems) {
+                            return tooltipItems[0].label;
+                        },
+                        label: function(context) {
+                            return `${context.parsed.y} ${data.chart.unit}`;
+                        }
+                    }
+                }
+            },
+            scales: {
+                x: {
+                    display: true,
+                    grid: {
+                        display: false
+                    },
+                    ticks: {
+                        maxTicksLimit: 8,
+                        color: '#6b7280'
+                    }
+                },
+                y: {
+                    display: true,
+                    beginAtZero: true,
+                    grid: {
+                        color: 'rgba(0, 0, 0, 0.1)'
+                    },
+                    ticks: {
+                        color: '#6b7280',
+                        callback: function(value) {
+                            return value + ' ' + data.chart.unit;
+                        }
+                    }
+                }
+            },
+            animation: {
+                duration: 750,
+                easing: 'easeInOutQuart'
+            }
+        }
+    });
+    
+    // Chart-Instanz speichern
+    chartInstances.set(chartKey, chart);
+}
+
+// Aktuelle Werte aktualisieren
+function updateCurrentValues(deviceId, currentData) {
+    const container = document.getElementById(`current-values-${deviceId}`);
+    if (!container || !currentData) return;
+    
+    container.innerHTML = `
+        <div class="row text-center">
+            <div class="col-3">
+                <strong class="text-warning">${currentData.power}</strong><br>
+                <small class="text-muted">Watt</small>
+            </div>
+            <div class="col-3">
+                <strong class="text-info">${currentData.voltage}</strong><br>
+                <small class="text-muted">Volt</small>
+            </div>
+            <div class="col-3">
+                <strong class="text-danger">${currentData.current}</strong><br>
+                <small class="text-muted">A</small>
+            </div>
+            <div class="col-3">
+                <strong class="text-success">${currentData.energy_today}</strong><br>
+                <small class="text-muted">kWh</small>
+            </div>
+        </div>
+    `;
+}
+
+// Chart-Fehler anzeigen
+function showChartError(deviceId, errorMessage) {
+    const container = document.getElementById(`charts-${deviceId}`);
+    if (container) {
+        container.innerHTML = `
+            <div class="alert alert-warning py-2 text-center">
+                <small><i class="bi bi-exclamation-triangle"></i> ${errorMessage}</small>
+            </div>
+        `;
+    }
+}
+
+// Alle Tasmota-Charts refreshen
+function refreshTasmotaCharts() {
+    document.querySelectorAll('.btn-timerange.active').forEach(button => {
+        const deviceId = button.dataset.deviceId;
+        const timeRange = button.dataset.range;
+        const activeTab = document.querySelector(`#chart-tabs-${deviceId} .chart-tab.active`);
+        const chartType = activeTab ? activeTab.dataset.type : 'power';
+        
+        loadChartData(deviceId, timeRange, chartType);
+    });
+}
+
+// Chart-Größe bei Fenster-Resize anpassen
+window.addEventListener('resize', function() {
+    chartInstances.forEach(chart => {
+        chart.resize();
+    });
+});
 </script>

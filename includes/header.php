@@ -87,6 +87,7 @@
     
     <!-- Chart.js für Diagramme -->
     <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.js"></script>
+    <script src="/js/tasmota-integration.js"></script>
     
     <!-- Favicon -->
     <link rel="icon" type="image/x-icon" href="favicon.ico">

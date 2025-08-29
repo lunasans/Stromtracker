@@ -39,7 +39,7 @@ if (!$device) {
 // Zeitraum berechnen
 switch ($timeRange) {
     case '5':
-        $minutes = 5;
+        $minutes = 10;
         $interval = '1 MINUTE';
         $groupBy = "DATE_FORMAT(timestamp, '%H:%i')";
         $dateFormat = '%H:%i';

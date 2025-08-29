@@ -209,8 +209,10 @@ class TasmotaWebReceiver {
         // Tasmota-Rohdaten speichern (falls Tabelle existiert)
         $this->saveTasmotaReadings($deviceId, $userId, $deviceData);
         
-        // Tagesverbrauch in meter_readings aktualisieren
-        $this->updateMeterReadings($userId, $deviceId, $deviceData);
+        // ❌ ENTFERNT: updateMeterReadings() 
+        // Grund: Einzelgeräte gehören NICHT in meter_readings!
+        // meter_readings ist nur für Gesamthaushalt-Zählerstände
+        debugLog("Skipping meter_readings update - only individual device data saved");
         
         return [
             'success' => true,
@@ -342,73 +344,29 @@ class TasmotaWebReceiver {
     }
     
     /**
-     * ✅ KORRIGIERT: Meter readings für Tagesverbrauch aktualisieren
+     * ❌ DEAKTIVIERT: updateMeterReadings()
+     * 
+     * Diese Funktion war fehlerhaft und wurde entfernt.
+     * 
+     * GRUND:
+     * - meter_readings ist für Gesamthaushalt-Zählerstände (manuell vom Hauptzähler)
+     * - tasmota_readings ist für Einzelgerät-Verbrauch (automatisch von Smart-Steckdosen)
+     * 
+     * PROBLEM:
+     * Die Funktion hat fälschlicherweise Einzelgerätedaten (z.B. PC: 0.47 kWh) 
+     * in meter_readings geschrieben, was die Gesamthaushalts-Bilanz verfälscht hat.
+     * 
+     * LÖSUNG:
+     * - Tasmota-Daten bleiben in tasmota_readings
+     * - meter_readings nur für manuelle Zählerstände
+     * - Korrekte Trennung der Datenquellen
      */
+    /*
     private function updateMeterReadings($userId, $deviceId, $deviceData) {
-        $today = date('Y-m-d');
-        
-        // ✅ FIX: energy_data Objekt extrahieren  
-        $energyData = $deviceData['energy_data'] ?? $deviceData;
-        $energyToday = $this->extractFloat($energyData, 'energy_today');
-        
-        debugLog("Updating meter readings", ['user_id' => $userId, 'device_id' => $deviceId, 'energy_today' => $energyToday, 'energy_data_available' => isset($deviceData['energy_data'])]);
-        
-        if ($energyToday <= 0) {
-            debugLog("No meaningful energy data to update");
-            return; // Keine sinnvollen Daten
-        }
-        
-        // Heutigen Eintrag suchen
-        $existingReading = Database::fetchOne(
-            "SELECT * FROM meter_readings 
-             WHERE user_id = ? AND DATE(reading_date) = ? 
-             ORDER BY reading_date DESC LIMIT 1",
-            [$userId, $today]
-        );
-        
-        // Aktuellen Strompreis holen
-        $tariff = Database::fetchOne(
-            "SELECT rate_per_kwh FROM tariff_periods 
-             WHERE user_id = ? AND is_active = 1 ORDER BY valid_from DESC LIMIT 1",
-            [$userId]
-        ) ?: ['rate_per_kwh' => 0.32];
-        
-        $ratePerKwh = (float)$tariff['rate_per_kwh'];
-        $cost = $energyToday * $ratePerKwh;
-        
-        debugLog("Tariff and cost calculation", ['rate_per_kwh' => $ratePerKwh, 'cost' => $cost]);
-        
-        if ($existingReading) {
-            // Update wenn sich Verbrauch geändert hat
-            $oldConsumption = (float)$existingReading['consumption'];
-            
-            if (abs($energyToday - $oldConsumption) > 0.01) { // 10Wh Mindestdifferenz
-                Database::update('meter_readings', [
-                    'consumption' => $energyToday,
-                    'cost' => $cost,
-                    'rate_per_kwh' => $ratePerKwh,
-                    'reading_date' => date('Y-m-d H:i:s')
-                ], 'id = ?', [$existingReading['id']]);
-                
-                debugLog("Meter reading updated", ['old_consumption' => $oldConsumption, 'new_consumption' => $energyToday]);
-            } else {
-                debugLog("Meter reading unchanged (difference too small)");
-            }
-        } else {
-            // Neuer Tageseintrag
-            $insertId = Database::insert('meter_readings', [
-                'user_id' => $userId,
-                'reading_date' => date('Y-m-d H:i:s'),
-                'meter_value' => $this->extractFloat($energyData, 'energy_total') ?? $energyToday,
-                'consumption' => $energyToday,
-                'cost' => $cost,
-                'rate_per_kwh' => $ratePerKwh,
-                'notes' => "Automatisch von Tasmota-Gerät: {$deviceData['device_name']}"
-            ]);
-            
-            debugLog("New meter reading created", ['insert_id' => $insertId]);
-        }
+        // DIESE FUNKTION IST PERMANENT DEAKTIVIERT
+        // Siehe Kommentar oben für Details
     }
+    */
     
     /**
      * Erfolgreiche Datenübertragung loggen

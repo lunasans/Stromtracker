@@ -1,6 +1,6 @@
 <?php
 // profil.php
-// EINFACHE & SCHÖNE Profil-Verwaltung mit Profilbild-Upload
+// EINFACHE & SCHÖNE Profil-Verwaltung mit Profilbild-Upload und API-Key-Management
 
 require_once 'config/database.php';
 require_once 'config/session.php';
@@ -113,84 +113,92 @@ class ProfileImageHandler {
             return 'Datei ist kein gültiges Bild.';
         }
         
+        // Maximale Bildgröße
+        if ($imageInfo[0] > 2000 || $imageInfo[1] > 2000) {
+            return 'Bild zu groß. Maximum: 2000x2000 Pixel.';
+        }
+        
         return true;
     }
     
     /**
-     * Bild verarbeiten und optimieren
+     * Bild verarbeiten (verkleinern, optimieren)
      */
     private static function processImage($filepath) {
-        
-        $imageInfo = getimagesize($filepath);
-        $width = $imageInfo[0];
-        $height = $imageInfo[1];
-        $type = $imageInfo[2];
-        
-        // Zielgröße
-        $targetSize = 200;
-        
-        // Bild nur verkleinern wenn größer als Ziel
-        if ($width <= $targetSize && $height <= $targetSize) {
-            return true;
-        }
-        
-        // Seitenverhältnis berechnen
-        $ratio = min($targetSize / $width, $targetSize / $height);
-        $newWidth = intval($width * $ratio);
-        $newHeight = intval($height * $ratio);
-        
-        // Quell-Bild laden
-        switch ($type) {
-            case IMAGETYPE_JPEG:
-                $source = imagecreatefromjpeg($filepath);
-                break;
-            case IMAGETYPE_PNG:
-                $source = imagecreatefrompng($filepath);
-                break;
-            case IMAGETYPE_GIF:
-                $source = imagecreatefromgif($filepath);
-                break;
-            default:
-                return false;
-        }
-        
-        if (!$source) {
+        try {
+            $imageInfo = getimagesize($filepath);
+            if (!$imageInfo) return false;
+            
+            $maxSize = 400; // Maximale Kantenlänge
+            $width = $imageInfo[0];
+            $height = $imageInfo[1];
+            $mimeType = $imageInfo['mime'];
+            
+            // Skalierung berechnen
+            if ($width <= $maxSize && $height <= $maxSize) {
+                return true; // Bereits klein genug
+            }
+            
+            $scale = min($maxSize / $width, $maxSize / $height);
+            $newWidth = round($width * $scale);
+            $newHeight = round($height * $scale);
+            
+            // Ursprungsbild laden
+            switch ($mimeType) {
+                case 'image/jpeg':
+                    $source = imagecreatefromjpeg($filepath);
+                    break;
+                case 'image/png':
+                    $source = imagecreatefrompng($filepath);
+                    break;
+                case 'image/gif':
+                    $source = imagecreatefromgif($filepath);
+                    break;
+                default:
+                    return false;
+            }
+            
+            if (!$source) return false;
+            
+            // Neues Bild erstellen
+            $resized = imagecreatetruecolor($newWidth, $newHeight);
+            
+            // Transparenz für PNG/GIF beibehalten
+            if ($mimeType === 'image/png' || $mimeType === 'image/gif') {
+                imagealphablending($resized, false);
+                imagesavealpha($resized, true);
+                $transparent = imagecolorallocatealpha($resized, 255, 255, 255, 127);
+                imagefill($resized, 0, 0, $transparent);
+            }
+            
+            // Skalieren
+            imagecopyresampled($resized, $source, 0, 0, 0, 0, 
+                              $newWidth, $newHeight, $width, $height);
+            
+            // Speichern
+            $result = false;
+            switch ($mimeType) {
+                case 'image/jpeg':
+                    $result = imagejpeg($resized, $filepath, 85);
+                    break;
+                case 'image/png':
+                    $result = imagepng($resized, $filepath, 6);
+                    break;
+                case 'image/gif':
+                    $result = imagegif($resized, $filepath);
+                    break;
+            }
+            
+            // Speicher freigeben
+            imagedestroy($source);
+            imagedestroy($resized);
+            
+            return $result;
+            
+        } catch (Exception $e) {
+            error_log("Image processing error: " . $e->getMessage());
             return false;
         }
-        
-        // Neues Bild erstellen
-        $target = imagecreatetruecolor($newWidth, $newHeight);
-        
-        // Transparenz für PNG/GIF erhalten
-        if ($type == IMAGETYPE_PNG || $type == IMAGETYPE_GIF) {
-            imagealphablending($target, false);
-            imagesavealpha($target, true);
-            $transparent = imagecolorallocatealpha($target, 0, 0, 0, 127);
-            imagefill($target, 0, 0, $transparent);
-        }
-        
-        // Bild skalieren
-        imagecopyresampled($target, $source, 0, 0, 0, 0, $newWidth, $newHeight, $width, $height);
-        
-        // Speichern
-        $result = false;
-        switch ($type) {
-            case IMAGETYPE_JPEG:
-                $result = imagejpeg($target, $filepath, 85);
-                break;
-            case IMAGETYPE_PNG:
-                $result = imagepng($target, $filepath, 6);
-                break;
-            case IMAGETYPE_GIF:
-                $result = imagegif($target, $filepath);
-                break;
-        }
-        
-        // Speicher freigeben
-        imagedestroy($source);
-        imagedestroy($target);
-        
-        return $result;
     }
     
     /**
@@ -284,7 +292,57 @@ class ProfileImageHandler {
     }
 }
 
-// Profil-Verarbeitung
+// =============================================================================
+// API-KEY MANAGER CLASS
+// =============================================================================
+
+class ApiKeyManager {
+    
+    /**
+     * Generiert einen sicheren API-Key
+     */
+    public static function generateKey($prefix = 'st_') {
+        return $prefix . bin2hex(random_bytes(30)); // 64 Zeichen total
+    }
+    
+    /**
+     * Validiert API-Key Format
+     */
+    public static function isValidFormat($key) {
+        return preg_match('/^st_[a-f0-9]{60}$/', $key);
+    }
+    
+    /**
+     * Validiert API-Key gegen Datenbank
+     */
+    public static function validateApiKey($providedKey) {
+        if (empty($providedKey) || !self::isValidFormat($providedKey)) {
+            return false;
+        }
+        
+        $user = Database::fetchOne(
+            "SELECT id FROM users WHERE api_key = ? AND api_key IS NOT NULL", 
+            [$providedKey]
+        );
+        
+        return $user !== false;
+    }
+    
+    /**
+     * API-Key-Inhaber ermitteln
+     */
+    public static function getUserByApiKey($apiKey) {
+        return Database::fetchOne(
+            "SELECT id, name, email FROM users WHERE api_key = ?", 
+            [$apiKey]
+        );
+    }
+}
+
+// =============================================================================
+// FORM PROCESSING
+// =============================================================================
+
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     
     // CSRF-Token prüfen
@@ -384,6 +442,33 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     }
                 }
                 break;
+                
+            case 'generate_api_key':
+                // Neuen API-Key generieren
+                $newApiKey = ApiKeyManager::generateKey();
+                $success = Database::update('users', [
+                    'api_key' => $newApiKey
+                ], 'id = ?', [$userId]);
+                
+                if ($success) {
+                    Flash::success('API-Key erfolgreich generiert!');
+                } else {
+                    Flash::error('Fehler beim Generieren des API-Keys.');
+                }
+                break;
+                
+            case 'delete_api_key':
+                // API-Key löschen
+                $success = Database::update('users', [
+                    'api_key' => null
+                ], 'id = ?', [$userId]);
+                
+                if ($success) {
+                    Flash::success('API-Key erfolgreich gelöscht.');
+                } else {
+                    Flash::error('Fehler beim Löschen des API-Keys.');
+                }
+                break;
         }
     }
     
@@ -392,8 +477,13 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     exit;
 }
 
-// User-Daten laden
+// =============================================================================
+// DATA LOADING
+// =============================================================================
+
+// User-Daten laden (mit API-Key)
 $userData = Database::fetchOne("SELECT * FROM users WHERE id = ?", [$userId]) ?: [];
+$userApiKey = $userData['api_key'] ?? null;
 
 // Account-Statistiken für Info-Tab
 $accountStats = [
@@ -458,7 +548,7 @@ include 'includes/navbar.php';
                                      class="profile-header-image">
                             <?php else: ?>
                                 <div class="profile-header-placeholder">
-                                    <?= strtoupper(substr($userData['name'] ?? 'U', 0, 1)) ?>
+                                    <?= strtoupper(substr($userData['name'] ?? 'User', 0, 2)) ?>
                                 </div>
                             <?php endif; ?>
                         </div>
@@ -468,95 +558,54 @@ include 'includes/navbar.php';
         </div>
     </div>
     
-    <!-- Account-Statistiken -->
-    <div class="row mb-4">
-        <div class="col-md-3 mb-3">
-            <div class="stats-card success">
-                <div class="flex-between mb-3">
-                    <i class="stats-icon bi bi-speedometer2"></i>
-                    <div class="small">Erfasst</div>
-                </div>
-                <h3><?= $accountStats['total_readings'] ?></h3>
-                <p>Zählerstände</p>
-            </div>
-        </div>
-        
-        <div class="col-md-3 mb-3">
-            <div class="stats-card primary">
-                <div class="flex-between mb-3">
-                    <i class="stats-icon bi bi-cpu"></i>
-                    <div class="small">Verwaltet</div>
-                </div>
-                <h3><?= $accountStats['total_devices'] ?></h3>
-                <p>Geräte registriert</p>
-            </div>
-        </div>
-        
-        <div class="col-md-3 mb-3">
-            <div class="stats-card warning">
-                <div class="flex-between mb-3">
-                    <i class="stats-icon bi bi-tags"></i>
-                    <div class="small">Konfiguriert</div>
-                </div>
-                <h3><?= $accountStats['total_tariffs'] ?></h3>
-                <p>Tarife erstellt</p>
-            </div>
-        </div>
-        
-        <div class="col-md-3 mb-3">
-            <div class="stats-card energy">
-                <div class="flex-between mb-3">
-                    <i class="stats-icon bi bi-calendar-check"></i>
-                    <div class="small">Dabei seit</div>
-                </div>
-                <h3><?= $daysSinceRegistration ?></h3>
-                <p>Tagen aktiv</p>
-            </div>
-        </div>
-    </div>
-
-    <!-- Profil-Tabs -->
+    <!-- Profil Tabs -->
     <div class="row">
         <div class="col-12">
             
             <!-- Tab Navigation -->
             <ul class="nav nav-tabs" id="profileTabs" role="tablist">
                 <li class="nav-item" role="presentation">
-                    <button class="nav-link active" id="personal-tab" data-bs-toggle="tab" 
-                            data-bs-target="#personal" type="button" role="tab">
-                        <i class="bi bi-person me-2"></i>Persönliche Daten
+                    <button class="nav-link active" id="profile-tab" data-bs-toggle="tab" 
+                            data-bs-target="#profile" type="button" role="tab">
+                        <i class="bi bi-person me-2"></i>Profil
                     </button>
                 </li>
                 <li class="nav-item" role="presentation">
                     <button class="nav-link" id="image-tab" data-bs-toggle="tab" 
-                            data-bs-target="#profile-image" type="button" role="tab">
-                        <i class="bi bi-camera me-2"></i>Profilbild
+                            data-bs-target="#image" type="button" role="tab">
+                        <i class="bi bi-image me-2"></i>Profilbild
                     </button>
                 </li>
                 <li class="nav-item" role="presentation">
-                    <button class="nav-link" id="security-tab" data-bs-toggle="tab" 
-                            data-bs-target="#security" type="button" role="tab">
-                        <i class="bi bi-shield-lock me-2"></i>Sicherheit
+                    <button class="nav-link" id="password-tab" data-bs-toggle="tab" 
+                            data-bs-target="#password" type="button" role="tab">
+                        <i class="bi bi-lock me-2"></i>Passwort
+                    </button>
+                </li>
+                <li class="nav-item" role="presentation">
+                    <button class="nav-link" id="api-tab" data-bs-toggle="tab" 
+                            data-bs-target="#api" type="button" role="tab">
+                        <i class="bi bi-key me-2"></i>API-Keys
                     </button>
                 </li>
                 <li class="nav-item" role="presentation">
                     <button class="nav-link" id="account-tab" data-bs-toggle="tab" 
                             data-bs-target="#account" type="button" role="tab">
-                        <i class="bi bi-info-circle me-2"></i>Account-Info
+                        <i class="bi bi-info-circle me-2"></i>Account
                     </button>
                 </li>
             </ul>
-
+            
             <!-- Tab Content -->
-            <div class="tab-content" id="profileTabsContent">
+            <div class="tab-content" id="profileTabContent">
                 
-                <!-- Persönliche Daten -->
-                <div class="tab-pane fade show active" id="personal" role="tabpanel">
+                <!-- Profil Tab -->
+                <div class="tab-pane fade show active" id="profile" role="tabpanel">
                     <div class="card">
                         <div class="card-header">
                             <h5 class="mb-0">
                                 <i class="bi bi-person text-energy"></i>
-                                Persönliche Informationen
+                                Profil-Informationen
                             </h5>
                         </div>
                         <div class="card-body">
@@ -566,136 +615,102 @@ include 'includes/navbar.php';
                                 
                                 <div class="row">
                                     <div class="col-md-6 mb-3">
-                                        <label class="form-label">Name *</label>
-                                        <input type="text" class="form-control" name="name" 
-                                               value="<?= htmlspecialchars($userData['name'] ?? '') ?>" required>
+                                        <label for="name" class="form-label">Name</label>
+                                        <input type="text" class="form-control" id="name" name="name" 
+                                               value="<?= htmlspecialchars($userData['name'] ?? '') ?>" 
+                                               required>
                                     </div>
-                                    
                                     <div class="col-md-6 mb-3">
-                                        <label class="form-label">E-Mail-Adresse *</label>
-                                        <input type="email" class="form-control" name="email" 
-                                               value="<?= htmlspecialchars($userData['email'] ?? '') ?>" required>
+                                        <label for="email" class="form-label">E-Mail-Adresse</label>
+                                        <input type="email" class="form-control" id="email" name="email" 
+                                               value="<?= htmlspecialchars($userData['email'] ?? '') ?>" 
+                                               required>
                                     </div>
                                 </div>
                                 
-                                <div class="alert alert-info">
-                                    <i class="bi bi-info-circle me-2"></i>
-                                    <strong>Hinweis:</strong> Derzeit können nur Name und E-Mail-Adresse bearbeitet werden. 
-                                    Weitere Profilfelder werden in einer zukünftigen Version hinzugefügt.
-                                </div>
-                                
-                                <div class="text-end">
-                                    <button type="submit" class="btn btn-energy">
-                                        <i class="bi bi-check-circle me-2"></i>Profil speichern
-                                    </button>
-                                </div>
+                                <button type="submit" class="btn btn-success">
+                                    <i class="bi bi-check-circle"></i> Profil Aktualisieren
+                                </button>
                             </form>
                         </div>
                     </div>
                 </div>
                 
-                <!-- Profilbild Tab - KORRIGIERT -->
-                <div class="tab-pane fade" id="profile-image" role="tabpanel">
+                <!-- Profilbild Tab -->
+                <div class="tab-pane fade" id="image" role="tabpanel">
                     <div class="card">
                         <div class="card-header">
                             <h5 class="mb-0">
-                                <i class="bi bi-camera text-energy"></i>
+                                <i class="bi bi-image text-energy"></i>
                                 Profilbild verwalten
                             </h5>
                         </div>
                         <div class="card-body">
                             
-                            <div class="row">
-                                <!-- Aktuelles Profilbild -->
-                                <div class="col-md-4 text-center mb-4">
+                            <!-- Aktuelles Profilbild -->
+                            <div class="row mb-4">
+                                <div class="col-md-6">
                                     <h6>Aktuelles Profilbild</h6>
-                                    
-                                    <div class="profile-image-container mb-3">
-                                        <?php 
-                                        $currentImage = ProfileImageHandler::getImageUrl($userData['profile_image']); 
-                                        if ($currentImage): 
-                                        ?>
+                                    <div class="profile-image-container">
+                                        <?php if ($currentImage): ?>
                                             <img src="<?= htmlspecialchars($currentImage) ?>" 
-                                                 alt="Profilbild" 
-                                                 class="profile-image-large">
+                                                 alt="Aktuelles Profilbild" 
+                                                 class="profile-image-current">
                                         <?php else: ?>
                                             <div class="profile-image-placeholder">
-                                                <i class="bi bi-person-circle"></i>
-                                                <span class="placeholder-text">Kein Bild</span>
+                                                <i class="bi bi-person"></i>
+                                                <div class="placeholder-text">Kein Bild</div>
                                             </div>
                                         <?php endif; ?>
                                     </div>
                                     
+                                    <!-- Lösch-Button falls Bild vorhanden -->
                                     <?php if ($currentImage): ?>
-                                        <form method="POST" style="display: inline;">
+                                        <form method="POST" class="mt-3">
                                             <input type="hidden" name="csrf_token" value="<?= $csrfToken ?>">
                                             <input type="hidden" name="action" value="delete_image">
-                                            <button type="submit" class="btn btn-outline-danger btn-sm" 
+                                            <button type="submit" class="btn btn-danger btn-sm"
                                                     onclick="return confirm('Profilbild wirklich löschen?')">
-                                                <i class="bi bi-trash me-1"></i>Löschen
+                                                <i class="bi bi-trash"></i> Bild Löschen
                                             </button>
                                         </form>
                                     <?php endif; ?>
                                 </div>
                                 
-                                <!-- Upload-Formular -->
-                                <div class="col-md-8">
+                                <div class="col-md-6">
+                                    <!-- Upload Form -->
                                     <h6>Neues Profilbild hochladen</h6>
-                                    
                                     <form method="POST" enctype="multipart/form-data" class="upload-form">
                                         <input type="hidden" name="csrf_token" value="<?= $csrfToken ?>">
                                         <input type="hidden" name="action" value="upload_image">
                                         
                                         <div class="mb-3">
-                                            <label class="form-label">Bilddatei auswählen</label>
-                                            <input type="file" class="form-control" name="profile_image" 
-                                                   accept="image/jpeg,image/png,image/gif" 
-                                                   required
-                                                   onchange="previewImage(this)">
+                                            <label for="profile_image" class="form-label">Bild auswählen</label>
+                                            <input type="file" class="form-control" id="profile_image" 
+                                                   name="profile_image" accept="image/*" required>
                                             <div class="form-text">
-                                                <i class="bi bi-info-circle me-1"></i>
-                                                Erlaubt: JPG, PNG, GIF • Max. 2MB • Wird automatisch auf 200x200px verkleinert
+                                                <i class="bi bi-info-circle"></i> 
+                                                Max. 2MB, JPG/PNG/GIF, wird automatisch auf 400px skaliert
                                             </div>
                                         </div>
                                         
-                                        <!-- Vorschau -->
-                                        <div class="mb-3">
-                                            <div id="image-preview" class="image-preview" style="display: none;">
-                                                <h6>Vorschau:</h6>
-                                                <img id="preview-img" src="" alt="Vorschau" class="preview-image">
-                                            </div>
-                                        </div>
-                                        
-                                        <button type="submit" class="btn btn-energy">
-                                            <i class="bi bi-upload me-2"></i>Profilbild hochladen
+                                        <button type="submit" class="btn btn-primary">
+                                            <i class="bi bi-upload"></i> Hochladen
                                         </button>
                                     </form>
                                 </div>
-                            </div>
-                            
-                            <!-- Hinweise -->
-                            <hr class="my-4">
-                            
-                            <div class="alert alert-info">
-                                <h6><i class="bi bi-lightbulb me-2"></i>Tipps für das perfekte Profilbild:</h6>
-                                <ul class="mb-0">
-                                    <li>Verwenden Sie ein aktuelles, gut erkennbares Foto</li>
-                                    <li>Quadratische Bilder funktionieren am besten</li>
-                                    <li>Achten Sie auf ausreichend Licht und gute Qualität</li>
-                                    <li>Das Bild wird automatisch auf 200x200 Pixel verkleinert</li>
-                                </ul>
                             </div>
                         </div>
                     </div>
                 </div>
                 
-                <!-- Sicherheit -->
-                <div class="tab-pane fade" id="security" role="tabpanel">
+                <!-- Passwort Tab -->
+                <div class="tab-pane fade" id="password" role="tabpanel">
                     <div class="card">
                         <div class="card-header">
                             <h5 class="mb-0">
-                                <i class="bi bi-shield-lock text-energy"></i>
-                                Passwort & Sicherheit
+                                <i class="bi bi-lock text-energy"></i>
+                                Passwort ändern
                             </h5>
                         </div>
                         <div class="card-body">
@@ -705,68 +720,192 @@ include 'includes/navbar.php';
                                 
                                 <div class="row">
                                     <div class="col-md-6 mb-3">
-                                        <label class="form-label">Aktuelles Passwort *</label>
-                                        <input type="password" class="form-control" name="current_password" required>
+                                        <label for="current_password" class="form-label">Aktuelles Passwort</label>
+                                        <input type="password" class="form-control" id="current_password" 
+                                               name="current_password" required>
                                     </div>
                                 </div>
                                 
                                 <div class="row">
                                     <div class="col-md-6 mb-3">
-                                        <label class="form-label">Neues Passwort *</label>
-                                        <input type="password" class="form-control" name="new_password" 
-                                               minlength="6" required>
+                                        <label for="new_password" class="form-label">Neues Passwort</label>
+                                        <input type="password" class="form-control" id="new_password" 
+                                               name="new_password" minlength="6" required>
                                     </div>
-                                    
                                     <div class="col-md-6 mb-3">
-                                        <label class="form-label">Neues Passwort bestätigen *</label>
-                                        <input type="password" class="form-control" name="confirm_password" 
-                                               minlength="6" required>
+                                        <label for="confirm_password" class="form-label">Passwort bestätigen</label>
+                                        <input type="password" class="form-control" id="confirm_password" 
+                                               name="confirm_password" minlength="6" required>
                                     </div>
                                 </div>
                                 
-                                <div class="text-end">
-                                    <button type="submit" class="btn btn-warning">
-                                        <i class="bi bi-shield-check me-2"></i>Passwort ändern
-                                    </button>
-                                </div>
+                                <button type="submit" class="btn btn-warning">
+                                    <i class="bi bi-shield-lock"></i> Passwort Ändern
+                                </button>
                             </form>
-                        </div>
-                    </div>
-                    
-                    <!-- Sicherheits-Info -->
-                    <div class="card mt-4">
-                        <div class="card-header">
-                            <h5 class="mb-0">
-                                <i class="bi bi-info-circle text-info"></i>
-                                Sicherheits-Tipps
-                            </h5>
-                        </div>
-                        <div class="card-body">
-                            <div class="row">
-                                <div class="col-md-6">
-                                    <h6 class="text-success">✅ Sicherheit</h6>
-                                    <ul class="small">
-                                        <li>Mindestens 8 Zeichen</li>
-                                        <li>Groß- und Kleinbuchstaben</li>
-                                        <li>Zahlen verwenden</li>
-                                        <li>Sonderzeichen nutzen</li>
-                                    </ul>
-                                </div>
-                                <div class="col-md-6">
-                                    <h6 class="text-danger">❌ Vermeiden</h6>
-                                    <ul class="small">
-                                        <li>Persönliche Daten</li>
-                                        <li>Einfache Wörter</li>
-                                        <li>Tastaturmuster</li>
-                                        <li>Wiederverwendung</li>
-                                    </ul>
+                            
+                            <!-- Passwort-Tipps -->
+                            <div class="card bg-light mt-4">
+                                <div class="card-body">
+                                    <h6><i class="bi bi-lightbulb"></i> Sicheres Passwort</h6>
+                                    <div class="row">
+                                        <div class="col-md-6">
+                                            <h6 class="text-success">✅ Empfohlen</h6>
+                                            <ul class="small">
+                                                <li>Mindestens 8 Zeichen</li>
+                                                <li>Groß- und Kleinbuchstaben</li>
+                                                <li>Zahlen und Sonderzeichen</li>
+                                                <li>Keine Wörterbuch-Wörter</li>
+                                            </ul>
+                                        </div>
+                                        <div class="col-md-6">
+                                            <h6 class="text-danger">❌ Vermeiden</h6>
+                                            <ul class="small">
+                                                <li>Persönliche Daten</li>
+                                                <li>Einfache Wörter</li>
+                                                <li>Tastaturmuster</li>
+                                                <li>Wiederverwendung</li>
+                                            </ul>
+                                        </div>
+                                    </div>
                                 </div>
                             </div>
                         </div>
                     </div>
                 </div>
                 
-                <!-- Account-Info -->
+                <!-- API-Keys Tab -->
+                <div class="tab-pane fade" id="api" role="tabpanel">
+                    <div class="card">
+                        <div class="card-header">
+                            <h5 class="mb-0">
+                                <i class="bi bi-key text-energy"></i>
+                                API-Key Verwaltung
+                                <span class="badge bg-info ms-2">Tasmota Integration</span>
+                            </h5>
+                        </div>
+                        <div class="card-body">
+                            
+                            <?php if (!empty($userApiKey)): ?>
+                            <!-- Bestehender API-Key -->
+                            <div class="alert alert-success">
+                                <h6><i class="bi bi-check-circle"></i> API-Key aktiv</h6>
+                                <p class="mb-2">Ihr persönlicher API-Key für die Tasmota-Integration:</p>
+                                <div class="input-group mb-3">
+                                    <input type="text" class="form-control font-monospace" 
+                                           id="current-api-key" value="<?= htmlspecialchars($userApiKey) ?>" readonly>
+                                    <button class="btn btn-outline-secondary" type="button" 
+                                            onclick="copyApiKey()" title="In Zwischenablage kopieren">
+                                        <i class="bi bi-clipboard"></i>
+                                    </button>
+                                </div>
+                                
+                                <!-- API-Key Aktionen -->
+                                <div class="row g-2">
+                                    <div class="col-md-6">
+                                        <form method="POST" class="d-inline">
+                                            <input type="hidden" name="csrf_token" value="<?= $csrfToken ?>">
+                                            <input type="hidden" name="action" value="generate_api_key">
+                                            <button type="submit" class="btn btn-warning w-100"
+                                                    onclick="return confirm('Neuen API-Key generieren?\n\nDer alte Key wird ungültig!')">
+                                                <i class="bi bi-arrow-clockwise"></i> Neu Generieren
+                                            </button>
+                                        </form>
+                                    </div>
+                                    <div class="col-md-6">
+                                        <form method="POST" class="d-inline">
+                                            <input type="hidden" name="csrf_token" value="<?= $csrfToken ?>">
+                                            <input type="hidden" name="action" value="delete_api_key">
+                                            <button type="submit" class="btn btn-danger w-100"
+                                                    onclick="return confirm('API-Key wirklich löschen?\n\nDie Tasmota-Integration wird deaktiviert!')">
+                                                <i class="bi bi-trash"></i> Löschen
+                                            </button>
+                                        </form>
+                                    </div>
+                                </div>
+                            </div>
+                            
+                            <?php else: ?>
+                            <!-- Kein API-Key vorhanden -->
+                            <div class="alert alert-info">
+                                <h6><i class="bi bi-info-circle"></i> Kein API-Key vorhanden</h6>
+                                <p>Generieren Sie einen API-Key für die automatische Datenübertragung von Tasmota-Geräten.</p>
+                                
+                                <form method="POST">
+                                    <input type="hidden" name="csrf_token" value="<?= $csrfToken ?>">
+                                    <input type="hidden" name="action" value="generate_api_key">
+                                    <button type="submit" class="btn btn-success">
+                                        <i class="bi bi-plus-circle"></i> API-Key Generieren
+                                    </button>
+                                </form>
+                            </div>
+                            <?php endif; ?>
+                            
+                            <!-- Dokumentation -->
+                            <div class="card bg-light mt-4">
+                                <div class="card-body">
+                                    <h6><i class="bi bi-book"></i> Integration Guide</h6>
+                                    
+                                    <div class="accordion" id="apiAccordion">
+                                        <!-- Tasmota Konfiguration -->
+                                        <div class="accordion-item">
+                                            <h2 class="accordion-header">
+                                                <button class="accordion-button collapsed" type="button" 
+                                                        data-bs-toggle="collapse" data-bs-target="#tasmota-config">
+                                                    <i class="bi bi-router me-2"></i>Tasmota Konfiguration
+                                                </button>
+                                            </h2>
+                                            <div id="tasmota-config" class="accordion-collapse collapse" 
+                                                 data-bs-parent="#apiAccordion">
+                                                <div class="accordion-body">
+                                                    <p><strong>HTTP-Endpoint für Datenübertragung:</strong></p>
+                                                    <code>POST <?= $_SERVER['HTTP_HOST'] ?>/api/receive-tasmota.php</code>
+                                                    
+                                                    <p class="mt-3"><strong>Beispiel JSON-Payload:</strong></p>
+                                                    <pre class="bg-dark text-light p-2 rounded"><code>{
+  "api_key": "<?= htmlspecialchars($userApiKey ?: 'IHR_API_KEY_HIER') ?>",
+  "user_id": <?= $userId ?>,
+  "device_name": "Tasmota-Steckdose",
+  "timestamp": "2024-01-15 14:30:00",
+  "energy_today": 2.5,
+  "energy_total": 157.3,
+  "power": 850
+}</code></pre>
+                                                </div>
+                                            </div>
+                                        </div>
+                                        
+                                        <!-- Sicherheitshinweise -->
+                                        <div class="accordion-item">
+                                            <h2 class="accordion-header">
+                                                <button class="accordion-button collapsed" type="button" 
+                                                        data-bs-toggle="collapse" data-bs-target="#security-info">
+                                                    <i class="bi bi-shield-check me-2"></i>Sicherheit
+                                                </button>
+                                            </h2>
+                                            <div id="security-info" class="accordion-collapse collapse" 
+                                                 data-bs-parent="#apiAccordion">
+                                                <div class="accordion-body">
+                                                    <div class="alert alert-warning">
+                                                        <strong>⚠️ Wichtige Sicherheitshinweise:</strong>
+                                                        <ul class="mb-0 mt-2">
+                                                            <li>API-Key niemals öffentlich teilen</li>
+                                                            <li>Key nur über HTTPS übertragen</li>
+                                                            <li>Bei Verdacht auf Missbrauch sofort neu generieren</li>
+                                                            <li>Key regelmäßig wechseln (alle 3-6 Monate)</li>
+                                                        </ul>
+                                                    </div>
+                                                </div>
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                
+                <!-- Account Tab -->
                 <div class="tab-pane fade" id="account" role="tabpanel">
                     <div class="card">
                         <div class="card-header">
@@ -825,33 +964,20 @@ include 'includes/navbar.php';
                                     </table>
                                 </div>
                             </div>
-                            
-                            <div class="alert alert-info">
-                                <h6>
-                                    <i class="bi bi-shield-check me-2"></i>
-                                    Datenschutz & Sicherheit
-                                </h6>
-                                <p class="mb-2">Ihre Daten werden sicher und verschlüsselt gespeichert.</p>
-                                <ul class="mb-0">
-                                    <li>Passwörter werden mit bcrypt gehashed</li>
-                                    <li>CSRF-Schutz bei allen Formularen</li>
-                                    <li>SSL-Verschlüsselung für alle Übertragungen</li>
-                                    <li>Keine Weitergabe an Dritte</li>
-                                </ul>
-                            </div>
                         </div>
                     </div>
                 </div>
-            </div>
+                
+            </div> <!-- Tab Content Ende -->
         </div>
     </div>
 </div>
 
 <?php include 'includes/footer.php'; ?>
 
-<!-- KORRIGIERTE CSS Styles für Profilbild -->
+<!-- Custom CSS -->
 <style>
-/* Header Avatar */
+/* Profil-Header */
 .profile-header-avatar {
     display: flex;
     justify-content: center;
@@ -864,7 +990,6 @@ include 'includes/navbar.php';
     border-radius: 50%;
     object-fit: cover;
     border: 3px solid var(--energy);
-    box-shadow: var(--shadow-lg);
 }
 
 .profile-header-placeholder {
@@ -876,38 +1001,38 @@ include 'includes/navbar.php';
     align-items: center;
     justify-content: center;
     color: white;
+    font-size: 1.5rem;
     font-weight: bold;
-    font-size: 2rem;
-    box-shadow: var(--shadow-lg);
 }
 
-/* Profile Image Management */
+/* Profilbild-Container */
 .profile-image-container {
-    position: relative;
-    display: inline-block;
+    text-align: center;
+    margin-bottom: 1rem;
 }
 
-.profile-image-large {
-    width: 150px;
-    height: 150px;
-    border-radius: 50%;
+.profile-image-current {
+    max-width: 200px;
+    max-height: 200px;
+    border-radius: var(--radius-lg);
     object-fit: cover;
-    border: 4px solid var(--energy);
-    box-shadow: var(--shadow-lg);
-    transition: all 0.3s ease;
+    border: 2px solid var(--energy);
+    box-shadow: 0 4px 8px rgba(0,0,0,0.1);
 }
 
 .profile-image-placeholder {
-    width: 150px;
-    height: 150px;
-    border-radius: 50%;
+    width: 200px;
+    height: 200px;
+    margin: 0 auto;
+    border-radius: var(--radius-lg);
     background: var(--gray-100);
     display: flex;
+    flex-direction: column;
     align-items: center;
     justify-content: center;
     border: 2px dashed var(--gray-300);
     color: var(--gray-500);
-    font-size: 2.2rem; /* REDUZIERT von 3rem auf 2.2rem */
+    font-size: 2.2rem;
     transition: all 0.3s ease;
     position: relative;
     cursor: pointer;
@@ -920,13 +1045,12 @@ include 'includes/navbar.php';
     transform: scale(1.02);
 }
 
-/* Text unter dem Icon - OPTIMIERT */
-.profile-image-placeholder .placeholder-text {
+.placeholder-text {
     position: absolute;
     bottom: 18px;
     left: 50%;
     transform: translateX(-50%);
-    font-size: 0.7rem; /* Sehr klein */
+    font-size: 0.7rem;
     font-weight: 500;
     white-space: nowrap;
     text-align: center;
@@ -937,43 +1061,12 @@ include 'includes/navbar.php';
     border-radius: 8px;
 }
 
-.image-preview {
-    padding: 1rem;
-    background: var(--gray-50);
-    border-radius: var(--radius-lg);
-    border: 1px solid var(--gray-200);
-    margin-top: 1rem;
-}
-
-.preview-image {
-    max-width: 200px;
-    max-height: 200px;
-    border-radius: var(--radius-lg);
-    object-fit: cover;
-    border: 2px solid var(--energy);
-}
-
+/* Upload-Form */
 .upload-form {
-    background: var(--white);
+    background: var(--gray-50);
     padding: 1.5rem;
     border-radius: var(--radius-lg);
     border: 1px solid var(--gray-200);
-}
-
-/* Drag & Drop Styling */
-.form-control[type="file"] {
-    transition: all 0.3s ease;
-    border: 2px dashed var(--gray-300);
-    background: var(--gray-50);
-    padding: 1rem;
-    border-radius: var(--radius-lg);
-}
-
-.form-control[type="file"]:hover,
-.form-control[type="file"]:focus {
-    border-color: var(--energy);
-    box-shadow: 0 0 0 3px rgba(245, 158, 11, 0.1);
-    background: rgba(245, 158, 11, 0.02);
 }
 
 /* Dark Theme Support */
@@ -990,144 +1083,92 @@ include 'includes/navbar.php';
 [data-theme="dark"] .profile-image-placeholder:hover {
     border-color: var(--energy);
     color: var(--energy);
-    background: rgba(245, 158, 11, 0.1);
-}
-
-[data-theme="dark"] .profile-image-placeholder .placeholder-text {
-    background: rgba(0, 0, 0, 0.7);
-    color: var(--gray-300);
-}
-
-[data-theme="dark"] .image-preview {
-    background: var(--gray-700);
-    border-color: var(--gray-600);
 }
 
 [data-theme="dark"] .upload-form {
     background: var(--gray-800);
     border-color: var(--gray-600);
 }
-
-[data-theme="dark"] .form-control[type="file"] {
-    background: var(--gray-700);
-    border-color: var(--gray-600);
-    color: var(--gray-300);
-}
-
-[data-theme="dark"] .form-control[type="file"]:hover,
-[data-theme="dark"] .form-control[type="file"]:focus {
-    background: rgba(245, 158, 11, 0.05);
-    border-color: var(--energy);
-}
-
-/* Responsive Anpassungen */
-@media (max-width: 768px) {
-    .profile-header-image,
-    .profile-header-placeholder {
-        width: 60px;
-        height: 60px;
-    }
-    
-    .profile-header-placeholder {
-        font-size: 1.5rem;
-    }
-    
-    .profile-image-large,
-    .profile-image-placeholder {
-        width: 120px;
-        height: 120px;
-    }
-    
-    .profile-image-placeholder {
-        font-size: 1.8rem;
-    }
-    
-    .profile-image-placeholder .placeholder-text {
-        font-size: 0.65rem;
-        bottom: 15px;
-        padding: 1px 4px;
-    }
-}
 </style>
 
 <!-- JavaScript -->
 <script>
-document.addEventListener('DOMContentLoaded', function() {
+// API-Key in Zwischenablage kopieren
+function copyApiKey() {
+    const apiKeyField = document.getElementById('current-api-key');
+    if (!apiKeyField) return;
     
-    // Password confirmation validation
-    const newPasswordField = document.querySelector('input[name="new_password"]');
-    const confirmPasswordField = document.querySelector('input[name="confirm_password"]');
+    apiKeyField.select();
+    apiKeyField.setSelectionRange(0, 99999); // Mobile
     
-    if (newPasswordField && confirmPasswordField) {
-        function validatePasswords() {
-            if (confirmPasswordField.value && newPasswordField.value !== confirmPasswordField.value) {
-                confirmPasswordField.setCustomValidity('Passwörter stimmen nicht überein');
-            } else {
-                confirmPasswordField.setCustomValidity('');
-            }
-        }
-        
-        newPasswordField.addEventListener('input', validatePasswords);
-        confirmPasswordField.addEventListener('input', validatePasswords);
-    }
-    
-    // Tab persistence
-    const tabTriggerList = [].slice.call(document.querySelectorAll('#profileTabs button[data-bs-toggle="tab"]'));
-    tabTriggerList.forEach(function (tabTriggerEl) {
-        tabTriggerEl.addEventListener('shown.bs.tab', function (event) {
-            localStorage.setItem('activeProfileTab', event.target.getAttribute('data-bs-target'));
-        });
+    navigator.clipboard.writeText(apiKeyField.value).then(function() {
+        showToast('API-Key in Zwischenablage kopiert!', 'success');
+    }).catch(function() {
+        // Fallback für ältere Browser
+        document.execCommand('copy');
+        showToast('API-Key kopiert!', 'success');
     });
-    
-    // Restore active tab
-    const activeTab = localStorage.getItem('activeProfileTab');
-    if (activeTab) {
-        const tabTrigger = document.querySelector('#profileTabs button[data-bs-target="' + activeTab + '"]');
-        if (tabTrigger) {
-            const tab = new bootstrap.Tab(tabTrigger);
-            tab.show();
-        }
-    }
-    
-    // Form validation feedback
-    const forms = document.querySelectorAll('form');
-    forms.forEach(form => {
-        form.addEventListener('submit', function(e) {
-            // Add loading state to submit button
-            const submitBtn = this.querySelector('button[type="submit"]');
-            if (submitBtn) {
-                const originalText = submitBtn.innerHTML;
-                submitBtn.innerHTML = '<i class="bi bi-arrow-repeat me-2"></i>Speichern...';
-                submitBtn.disabled = true;
-                
-                // Re-enable if form validation fails
-                setTimeout(() => {
-                    if (submitBtn.disabled) {
-                        submitBtn.innerHTML = originalText;
-                        submitBtn.disabled = false;
-                    }
-                }, 3000);
-            }
-        });
-    });
-});
-
-// Image Preview Function
-function previewImage(input) {
-    const preview = document.getElementById('image-preview');
-    const previewImg = document.getElementById('preview-img');
-    
-    if (input.files && input.files[0]) {
-        const reader = new FileReader();
-        
-        reader.onload = function(e) {
-            previewImg.src = e.target.result;
-            preview.style.display = 'block';
-        };
-        
-        reader.readAsDataURL(input.files[0]);
-    } else {
-        preview.style.display = 'none';
-    }
 }
+
+// Toast-Benachrichtigung anzeigen
+function showToast(message, type = 'info') {
+    const toastHTML = `
+        <div class="toast align-items-center text-white bg-${type === 'success' ? 'success' : 'primary'} border-0" role="alert">
+            <div class="d-flex">
+                <div class="toast-body">${message}</div>
+                <button type="button" class="btn-close btn-close-white me-2 m-auto" data-bs-dismiss="toast"></button>
+            </div>
+        </div>
+    `;
+    
+    // Toast-Container erstellen falls nicht vorhanden
+    let container = document.querySelector('.toast-container');
+    if (!container) {
+        container = document.createElement('div');
+        container.className = 'toast-container position-fixed top-0 end-0 p-3';
+        container.style.zIndex = '9999';
+        document.body.appendChild(container);
+    }
+    
+    container.insertAdjacentHTML('beforeend', toastHTML);
+    const toastElement = container.lastElementChild;
+    const toast = new bootstrap.Toast(toastElement);
+    toast.show();
+    
+    // Toast nach Anzeige entfernen
+    toastElement.addEventListener('hidden.bs.toast', () => {
+        toastElement.remove();
+    });
+}
+
+// Passwort-Bestätigung validieren
+document.addEventListener('DOMContentLoaded', function() {
+    const newPassword = document.getElementById('new_password');
+    const confirmPassword = document.getElementById('confirm_password');
+    
+    if (newPassword && confirmPassword) {
+        function validatePasswordMatch() {
+            if (confirmPassword.value && newPassword.value !== confirmPassword.value) {
+                confirmPassword.setCustomValidity('Passwörter stimmen nicht überein');
+            } else {
+                confirmPassword.setCustomValidity('');
+            }
+        }
+        
+        newPassword.addEventListener('input', validatePasswordMatch);
+        confirmPassword.addEventListener('input', validatePasswordMatch);
+    }
+    
+    // File-Upload Preview (optional)
+    const fileInput = document.getElementById('profile_image');
+    if (fileInput) {
+        fileInput.addEventListener('change', function(e) {
+            const file = e.target.files[0];
+            if (file && file.type.startsWith('image/')) {
+                // Hier könnte eine Preview-Funktionalität implementiert werden
+                console.log('Image selected:', file.name);
+            }
+        });
+    }
+});
 </script>

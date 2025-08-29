@@ -144,7 +144,7 @@ $breadcrumbs = [
                 <!-- System Status -->
                 <li class="nav-item d-flex align-items-center me-3 d-none d-lg-flex">
                     <span class="energy-indicator me-2"></span>
-                    <small style="color: rgba(255, 255, 255, 0.8) !important;">System aktiv</small>
+                    <small class="system-status-text">System aktiv</small>
                 </li>
                 
                 <!-- User Dropdown mit Profilbild -->
@@ -272,38 +272,55 @@ $breadcrumbs = [
 </nav>
 <?php endif; ?>
 
-<!-- KORRIGIERTE Custom Navbar Styles -->
+<!-- KORRIGIERTE CSS für perfekte Sichtbarkeit -->
 <style>
 /* ======================================
-   WICHTIGE CSS-FIXES FÜR SICHTBARKEIT 
+   NAVBAR - Alle Texte sichtbar
    ====================================== */
 
-/* User Display Name - KORRIGIERT */
-.user-display-name {
-    font-size: 0.875rem !important;
-    font-weight: 600 !important;
-    color: #ffffff !important;
-    line-height: 1.2 !important;
+/* Grundlegende Navbar-Farben */
+.navbar-dark {
+    --bs-navbar-color: rgba(255, 255, 255, 0.9) !important;
+    --bs-navbar-hover-color: rgba(255, 255, 255, 1) !important;
+    --bs-navbar-disabled-color: rgba(255, 255, 255, 0.5) !important;
+    --bs-navbar-active-color: rgba(255, 255, 255, 1) !important;
+    --bs-navbar-brand-color: rgba(255, 255, 255, 1) !important;
+    --bs-navbar-brand-hover-color: rgba(255, 255, 255, 1) !important;
 }
 
-/* User Display Status - KORRIGIERT */
-.user-display-status {
-    font-size: 0.75rem !important;
-    color: rgba(255, 255, 255, 0.8) !important;
-    line-height: 1 !important;
+/* Navbar Brand - immer weiß */
+.navbar-brand {
+    font-weight: 700 !important;
+    font-size: 1.25rem !important;
+    color: white !important;
+    transition: all 0.3s ease !important;
 }
 
-.user-display-status .bi-circle-fill {
-    color: #10b981 !important;
-    font-size: 0.5rem !important;
+.navbar-brand:hover,
+.navbar-brand:focus {
+    color: white !important;
+    transform: scale(1.05);
 }
 
-/* Active Navigation Links - KORRIGIERT */
-.navbar-nav .nav-link.active {
-    background: rgba(245, 158, 11, 0.3) !important;
-    color: #ffffff !important;
-    font-weight: 600 !important;
+/* Navigation Links - alle weiß */
+.navbar-nav .nav-link {
+    color: rgba(255, 255, 255, 0.9) !important;
+    font-weight: 500 !important;
+    transition: all 0.3s ease !important;
+    padding: 0.5rem 1rem !important;
     border-radius: 8px !important;
+}
+
+.navbar-nav .nav-link:hover {
+    color: white !important;
+    background: rgba(255, 255, 255, 0.1) !important;
+    transform: translateY(-1px);
+}
+
+.navbar-nav .nav-link.active {
+    color: white !important;
+    background: rgba(245, 158, 11, 0.3) !important;
+    font-weight: 600 !important;
     position: relative;
 }
 
@@ -319,47 +336,49 @@ $breadcrumbs = [
     border-radius: 1px;
 }
 
-/* Navigation Link Hover - KORRIGIERT */
-.navbar-nav .nav-link:not(.active):hover {
-    background: rgba(255, 255, 255, 0.1) !important;
-    color: #ffffff !important;
-    border-radius: 8px !important;
-    transform: translateY(-1px);
-}
-
-/* Dropdown User Info - KORRIGIERT */
-.dropdown-user-name {
-    font-weight: bold !important;
-    color: white !important;
-    font-size: 1rem !important;
-}
-
-.dropdown-user-email {
+/* System Status Text - explizit weiß */
+.system-status-text {
     color: rgba(255, 255, 255, 0.8) !important;
-}
-
-.dropdown-user-status {
-    color: #10b981 !important;
+    font-size: 0.875rem !important;
     font-weight: 500 !important;
 }
 
-/* User Menu Trigger - KORRIGIERT */
+/* User Display Info - explizit weiß */
+.user-display-name {
+    color: white !important;
+    font-size: 0.875rem !important;
+    font-weight: 600 !important;
+    line-height: 1.2 !important;
+}
+
+.user-display-status {
+    color: rgba(255, 255, 255, 0.8) !important;
+    font-size: 0.75rem !important;
+    line-height: 1 !important;
+}
+
+.user-display-status .bi-circle-fill {
+    color: #10b981 !important;
+    font-size: 0.5rem !important;
+}
+
+/* User Menu Trigger */
 .user-menu-trigger {
+    color: white !important;
     border-radius: 12px !important;
     transition: all 0.3s ease !important;
     border: 1px solid transparent !important;
-    color: #ffffff !important;
 }
 
 .user-menu-trigger:hover,
 .user-menu-trigger:focus {
+    color: white !important;
     background: rgba(255, 255, 255, 0.1) !important;
     border-color: rgba(255, 255, 255, 0.2) !important;
     transform: translateY(-1px) !important;
-    color: #ffffff !important;
 }
 
-/* User Avatar Hover-Effekte */
+/* User Avatar Hover */
 .user-avatar:hover {
     transform: scale(1.1) !important;
     box-shadow: 0 4px 12px rgba(245, 158, 11, 0.4) !important;
@@ -383,17 +402,32 @@ $breadcrumbs = [
     margin-bottom: 0;
 }
 
+.dropdown-user-name {
+    color: white !important;
+    font-weight: bold !important;
+    font-size: 1rem !important;
+}
+
+.dropdown-user-email {
+    color: rgba(255, 255, 255, 0.8) !important;
+}
+
+.dropdown-user-status {
+    color: #10b981 !important;
+    font-weight: 500 !important;
+}
+
 .dropdown-item {
     padding: 0.75rem 1rem;
     transition: all 0.2s ease;
-    border-radius: 0;
     font-size: 0.875rem;
+    color: var(--gray-700);
 }
 
 .dropdown-item:hover {
     background: var(--gray-50);
-    transform: translateX(4px);
     color: var(--gray-700);
+    transform: translateX(4px);
 }
 
 .dropdown-item.text-danger:hover {
@@ -401,39 +435,26 @@ $breadcrumbs = [
     color: #ef4444 !important;
 }
 
-.dropdown-header {
-    background: var(--gray-50);
-    margin: 0;
-    border-top: 1px solid var(--gray-200);
-    border-bottom: 1px solid var(--gray-200);
+/* Energy Indicator */
+.energy-indicator {
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    background-color: var(--energy);
+    animation: pulse 2s infinite;
+    display: inline-block;
 }
 
-/* Navbar Brand Styling */
-.navbar-brand {
-    font-weight: 700;
-    font-size: 1.25rem;
-    transition: all 0.3s ease;
-    padding: 0.5rem 0;
-    color: white !important;
+@keyframes pulse {
+    0% { box-shadow: 0 0 0 0 rgba(245, 158, 11, 0.7); }
+    70% { box-shadow: 0 0 0 6px rgba(245, 158, 11, 0); }
+    100% { box-shadow: 0 0 0 0 rgba(245, 158, 11, 0); }
 }
 
-.navbar-brand:hover {
-    transform: scale(1.05);
-    color: white !important;
-}
-
-/* Breadcrumb Styling */
+/* Breadcrumb Navigation */
 .breadcrumb-nav {
     background: var(--gray-50);
     border-bottom: 1px solid var(--gray-200);
-    transition: all 0.2s ease;
-}
-
-.breadcrumb {
-    background: none;
-    padding: 0;
-    margin: 0;
-    font-size: 0.875rem;
 }
 
 .breadcrumb-link {
@@ -450,47 +471,16 @@ $breadcrumbs = [
     font-weight: 500;
 }
 
-.breadcrumb-item + .breadcrumb-item::before {
-    color: var(--gray-400);
-}
-
-/* Energy Indicator Animation */
-.energy-indicator {
-    width: 8px;
-    height: 8px;
-    border-radius: 50%;
-    background-color: var(--energy);
-    animation: pulse 2s infinite;
-    display: inline-block;
-}
-
-@keyframes pulse {
-    0% { 
-        box-shadow: 0 0 0 0 rgba(245, 158, 11, 0.7); 
-    }
-    70% { 
-        box-shadow: 0 0 0 6px rgba(245, 158, 11, 0); 
-    }
-    100% { 
-        box-shadow: 0 0 0 0 rgba(245, 158, 11, 0); 
-    }
-}
-
-/* Dark Theme Adaptations - KORRIGIERT */
+/* Dark Theme Anpassungen */
 [data-theme="dark"] .navbar-dark {
     background: var(--gray-800) !important;
 }
 
-[data-theme="dark"] .user-display-name {
-    color: #ffffff !important;
-}
-
-[data-theme="dark"] .user-display-status {
-    color: rgba(255, 255, 255, 0.8) !important;
-}
-
+[data-theme="dark"] .system-status-text,
+[data-theme="dark"] .user-display-name,
+[data-theme="dark"] .user-display-status,
 [data-theme="dark"] .user-menu-trigger {
-    color: #ffffff !important;
+    color: white !important;
 }
 
 [data-theme="dark"] .breadcrumb-nav {
@@ -500,10 +490,6 @@ $breadcrumbs = [
 
 [data-theme="dark"] .breadcrumb-link {
     color: var(--gray-400);
-}
-
-[data-theme="dark"] .breadcrumb-link:hover {
-    color: var(--energy);
 }
 
 [data-theme="dark"] .breadcrumb-item.active {
@@ -524,44 +510,27 @@ $breadcrumbs = [
     color: var(--gray-700);
 }
 
-[data-theme="dark"] .dropdown-header {
-    background: var(--gray-200);
-    border-color: var(--gray-300);
-}
-
-/* Mobile Optimierungen */
+/* Mobile Responsiveness */
 @media (max-width: 768px) {
+    .navbar-brand {
+        font-size: 1.1rem;
+    }
+    
     .user-dropdown {
         min-width: 280px;
         right: 1rem !important;
         left: auto !important;
     }
     
-    .navbar-brand {
-        font-size: 1.1rem;
-    }
-    
-    .user-display-name {
-        font-size: 0.8rem !important;
-    }
-    
-    .user-display-status {
-        font-size: 0.7rem !important;
-    }
-    
     .nav-link {
+        color: rgba(255, 255, 255, 0.9) !important;
         margin: 2px 0;
         border-radius: 6px;
-        color: rgba(255, 255, 255, 0.9) !important;
     }
     
     .nav-link.active {
         background: rgba(245, 158, 11, 0.3) !important;
-        color: #ffffff !important;
-    }
-    
-    .dropdown-item {
-        padding: 0.6rem 1rem;
+        color: white !important;
     }
 }
 
@@ -570,41 +539,24 @@ $breadcrumbs = [
         min-width: 260px;
         right: 0.5rem !important;
     }
-    
-    .user-dropdown-header {
-        padding: 0.75rem;
-    }
 }
 </style>
 
-<!-- JavaScript für erweiterte Funktionen -->
+<!-- JavaScript -->
 <script>
 document.addEventListener('DOMContentLoaded', function() {
-    
-    // Theme Icon aktualisieren beim Laden
+    // Theme Icon beim Laden aktualisieren
     const savedTheme = localStorage.getItem('theme') || 'light';
     const themeIcon = document.getElementById('themeIcon');
     if (themeIcon) {
         themeIcon.className = savedTheme === 'dark' ? 'bi bi-sun me-2 text-info' : 'bi bi-moon-stars me-2 text-info';
     }
     
-    // Auto-close Dropdown bei Klick außerhalb
-    document.addEventListener('click', function(e) {
-        if (!e.target.closest('.dropdown')) {
-            const dropdowns = document.querySelectorAll('.dropdown-menu.show');
-            dropdowns.forEach(dropdown => {
-                const bsDropdown = bootstrap.Dropdown.getOrCreateInstance(dropdown.previousElementSibling);
-                bsDropdown.hide();
-            });
-        }
-    });
-    
-    // Mobile Navigation Verbesserungen
+    // Mobile Navigation Auto-Close
     const navbarToggler = document.querySelector('.navbar-toggler');
     const navbarCollapse = document.querySelector('.navbar-collapse');
     
     if (navbarToggler && navbarCollapse) {
-        // Auto-close bei Link-Klick auf Mobile
         const navLinks = navbarCollapse.querySelectorAll('.nav-link:not(.dropdown-toggle)');
         navLinks.forEach(link => {
             link.addEventListener('click', () => {
@@ -616,7 +568,7 @@ document.addEventListener('DOMContentLoaded', function() {
     }
 });
 
-// Globale Theme-Toggle Funktion
+// Theme Toggle Funktion
 function toggleTheme() {
     const current = document.documentElement.getAttribute('data-theme') || 'light';
     const newTheme = current === 'dark' ? 'light' : 'dark';
@@ -624,12 +576,9 @@ function toggleTheme() {
     document.documentElement.setAttribute('data-theme', newTheme);
     localStorage.setItem('theme', newTheme);
     
-    // Icon aktualisieren
     const themeIcon = document.getElementById('themeIcon');
     if (themeIcon) {
         themeIcon.className = newTheme === 'dark' ? 'bi bi-sun me-2 text-info' : 'bi bi-moon-stars me-2 text-info';
     }
-    
-    console.log('Theme switched to:', newTheme);
 }
 </script>

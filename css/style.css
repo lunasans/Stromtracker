@@ -152,28 +152,32 @@ body {
 }
 
 /* ============================================
-   NAVIGATION
+   NAVIGATION - KORRIGIERT für dunkle Navbar
    ============================================ */
 
-.navbar-brand {
+/* KEINE Überschreibung der Navbar-Hintergrundfarbe! */
+/* Die navbar.php definiert "navbar-dark bg-primary" - das soll so bleiben */
+
+/* Nur für Light-Theme auf anderen Seiten */
+.navbar-light .navbar-brand {
   font-weight: 700;
   color: var(--energy) !important;
   font-size: 1.25rem;
 }
 
-.navbar {
+.navbar-light {
   background: var(--white) !important;
   box-shadow: var(--shadow);
   border-bottom: 1px solid var(--gray-200);
 }
 
-.nav-link {
+.navbar-light .nav-link {
   color: var(--gray-600) !important;
   font-weight: 500;
 }
 
-.nav-link:hover,
-.nav-link.active {
+.navbar-light .nav-link:hover,
+.navbar-light .nav-link.active {
   color: var(--energy) !important;
 }
 

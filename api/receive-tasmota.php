@@ -1,6 +1,6 @@
 <?php
 // api/receive-tasmota.php  
-// ✅ DEBUG-VERSION: Web-API Endpoint für Tasmota-Daten mit ausführlichem Logging
+// ✅ KORRIGIERTE VERSION: UTC-zu-lokale-Zeit Konvertierung für Tasmota-Daten
 
 require_once '../config/database.php';
 require_once '../config/session.php';
@@ -32,6 +32,13 @@ function debugLog($message, $data = null) {
     file_put_contents('../logs/tasmota-debug.log', $logEntry, FILE_APPEND | LOCK_EX);
 }
 
+// JSON Response Hilfsfunktion
+function jsonResponse($data, $statusCode = 200) {
+    http_response_code($statusCode);
+    echo json_encode($data, JSON_UNESCAPED_UNICODE);
+    exit;
+}
+
 // Nur POST-Requests erlauben
 if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
     debugLog("ERROR: Non-POST request", ['method' => $_SERVER['REQUEST_METHOD']]);
@@ -52,6 +59,45 @@ if (json_last_error() !== JSON_ERROR_NONE) {
 debugLog("Parsed JSON data", $data);
 
 class TasmotaWebReceiver {
+    
+    /**
+     * ✅ NEU: Zeitstempel korrekt konvertieren (UTC zu lokaler Zeit)
+     */
+    private function convertTimestamp($rawTimestamp = null) {
+        // Falls kein Timestamp mitgesendet wird, aktuelle Zeit verwenden
+        if (empty($rawTimestamp)) {
+            return date('Y-m-d H:i:s');
+        }
+        
+        try {
+            // Prüfen ob der Timestamp bereits ein gültiges Datum ist
+            $timestamp = strtotime($rawTimestamp);
+            if ($timestamp === false) {
+                debugLog("WARNING: Invalid timestamp format", ['raw' => $rawTimestamp]);
+                return date('Y-m-d H:i:s');
+            }
+            
+            // UTC zu lokaler Zeit konvertieren
+            $utcDate = new DateTime($rawTimestamp, new DateTimeZone('UTC'));
+            $localDate = clone $utcDate;
+            $localDate->setTimezone(new DateTimeZone(date_default_timezone_get()));
+            
+            $convertedTime = $localDate->format('Y-m-d H:i:s');
+            
+            debugLog("Timestamp conversion", [
+                'input' => $rawTimestamp,
+                'utc' => $utcDate->format('Y-m-d H:i:s'),
+                'local_timezone' => date_default_timezone_get(),
+                'converted' => $convertedTime
+            ]);
+            
+            return $convertedTime;
+            
+        } catch (Exception $e) {
+            debugLog("ERROR: Timestamp conversion failed", ['error' => $e->getMessage(), 'raw' => $rawTimestamp]);
+            return date('Y-m-d H:i:s');
+        }
+    }
     
     /**
      * ✅ SICHER: API-Key gegen Datenbank validieren
@@ -188,9 +234,18 @@ class TasmotaWebReceiver {
         $deviceId = $device['id'];
         debugLog("Device found/created", ['device_id' => $deviceId]);
         
+        // ✅ KORRIGIERT: Timestamp aus den Gerätedaten verwenden
+        $rawTimestamp = $deviceData['timestamp'] ?? $deviceData['reading_time'] ?? null;
+        $correctedTimestamp = $this->convertTimestamp($rawTimestamp);
+        
+        debugLog("Using corrected timestamp", [
+            'raw_timestamp' => $rawTimestamp, 
+            'corrected_timestamp' => $correctedTimestamp
+        ]);
+        
         // Gerät-Info aktualisieren
         $updateData = [
-            'last_tasmota_reading' => date('Y-m-d H:i:s')
+            'last_tasmota_reading' => $correctedTimestamp
         ];
         
         if (!empty($deviceIP)) {
@@ -206,8 +261,8 @@ class TasmotaWebReceiver {
         Database::update('devices', $updateData, 'id = ?', [$deviceId]);
         debugLog("Device updated", $updateData);
         
-        // Tasmota-Rohdaten speichern (falls Tabelle existiert)
-        $this->saveTasmotaReadings($deviceId, $userId, $deviceData);
+        // Tasmota-Rohdaten speichern (mit korrigiertem Timestamp)
+        $this->saveTasmotaReadings($deviceId, $userId, $deviceData, $correctedTimestamp);
         
         // ❌ ENTFERNT: updateMeterReadings() 
         // Grund: Einzelgeräte gehören NICHT in meter_readings!
@@ -217,14 +272,15 @@ class TasmotaWebReceiver {
         return [
             'success' => true,
             'device_id' => $deviceId,
-            'device_name' => $deviceName
+            'device_name' => $deviceName,
+            'timestamp' => $correctedTimestamp
         ];
     }
     
     /**
-     * ✅ KORRIGIERT: Tasmota-Rohdaten mit verschachtelter energy_data speichern
+     * ✅ KORRIGIERT: Tasmota-Rohdaten mit korrigiertem Zeitstempel speichern
      */
-    private function saveTasmotaReadings($deviceId, $userId, $deviceData) {
+    private function saveTasmotaReadings($deviceId, $userId, $deviceData, $correctedTimestamp) {
         // Prüfen ob Tabelle existiert
         if (!Database::tableExists('tasmota_readings')) {
             debugLog("WARNING: tasmota_readings table does not exist");
@@ -240,7 +296,7 @@ class TasmotaWebReceiver {
             $readingData = [
                 'device_id' => $deviceId,
                 'user_id' => $userId,
-                'timestamp' => date('Y-m-d H:i:s'),
+                'timestamp' => $correctedTimestamp, // ✅ Korrigierter Zeitstempel verwenden
                 // ✅ FIX: Aus energy_data Objekt lesen statt direkt aus deviceData
                 'voltage' => $this->extractFloat($energyData, 'voltage'),
                 'current' => $this->extractFloat($energyData, 'current'),  
@@ -305,68 +361,34 @@ class TasmotaWebReceiver {
             
             if ($device) {
                 debugLog("Device found by IP", ['device_id' => $device['id']]);
-                // Name aktualisieren falls unterschiedlich
-                if ($device['name'] !== $deviceName) {
-                    Database::update('devices', [
-                        'name' => $deviceName
-                    ], 'id = ?', [$device['id']]);
-                    $device['name'] = $deviceName;
-                    debugLog("Device name updated", ['new_name' => $deviceName]);
-                }
                 return $device;
             }
         }
         
         // Neues Gerät erstellen
-        debugLog("Creating new device");
-        $deviceId = Database::insert('devices', [
+        $deviceData = [
             'user_id' => $userId,
             'name' => $deviceName,
-            'category' => 'Smart Home',
-            'wattage' => 100, // Default, wird später aus Messdaten aktualisiert
-            'tasmota_ip' => $deviceIP,
-            'tasmota_enabled' => true,
+            'category' => 'Tasmota',
+            'wattage' => 50, // Standard-Wattage
+            'tasmota_enabled' => 1,
+            'tasmota_ip' => $deviceIP ?: null,
             'tasmota_name' => $deviceName,
-            'is_active' => true
-        ]);
+            'is_active' => 1,
+            'created_at' => date('Y-m-d H:i:s'),
+            'last_tasmota_reading' => date('Y-m-d H:i:s')
+        ];
+        
+        $deviceId = Database::insert('devices', $deviceData);
         
         if ($deviceId) {
-            debugLog("New device created successfully", ['device_id' => $deviceId]);
-            return [
-                'id' => $deviceId,
-                'name' => $deviceName,
-                'user_id' => $userId
-            ];
+            debugLog("New device created", ['device_id' => $deviceId]);
+            return Database::fetchOne("SELECT * FROM devices WHERE id = ?", [$deviceId]);
         }
         
-        debugLog("ERROR: Failed to create new device");
+        debugLog("ERROR: Failed to create device");
         return null;
     }
-    
-    /**
-     * ❌ DEAKTIVIERT: updateMeterReadings()
-     * 
-     * Diese Funktion war fehlerhaft und wurde entfernt.
-     * 
-     * GRUND:
-     * - meter_readings ist für Gesamthaushalt-Zählerstände (manuell vom Hauptzähler)
-     * - tasmota_readings ist für Einzelgerät-Verbrauch (automatisch von Smart-Steckdosen)
-     * 
-     * PROBLEM:
-     * Die Funktion hat fälschlicherweise Einzelgerätedaten (z.B. PC: 0.47 kWh) 
-     * in meter_readings geschrieben, was die Gesamthaushalts-Bilanz verfälscht hat.
-     * 
-     * LÖSUNG:
-     * - Tasmota-Daten bleiben in tasmota_readings
-     * - meter_readings nur für manuelle Zählerstände
-     * - Korrekte Trennung der Datenquellen
-     */
-    /*
-    private function updateMeterReadings($userId, $deviceId, $deviceData) {
-        // DIESE FUNKTION IST PERMANENT DEAKTIVIERT
-        // Siehe Kommentar oben für Details
-    }
-    */
     
     /**
      * Erfolgreiche Datenübertragung loggen

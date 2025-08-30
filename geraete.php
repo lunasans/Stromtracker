@@ -32,14 +32,14 @@ class TasmotaDataHelper {
         
         $placeholders = str_repeat('?,', count($deviceIds) - 1) . '?';
         
-        // ✅ FIX: Längerer Zeitraum (7 Tage statt 24h) für robustere Datenerfassung
+        // ✅ FIX: UTC_TIMESTAMP() statt NOW() für korrekte UTC-Zeitvergleiche
         $readings = Database::fetchAll(
             "SELECT device_id, voltage, current, power, energy_today, energy_yesterday, 
                     energy_total, timestamp,
-                    TIMESTAMPDIFF(MINUTE, timestamp, NOW()) as minutes_ago
+                    TIMESTAMPDIFF(MINUTE, timestamp, UTC_TIMESTAMP()) as minutes_ago
              FROM tasmota_readings 
              WHERE device_id IN ({$placeholders})
-             AND timestamp >= DATE_SUB(NOW(), INTERVAL 7 DAY)
+             AND timestamp >= DATE_SUB(UTC_TIMESTAMP(), INTERVAL 7 DAY)
              ORDER BY device_id, timestamp DESC",
             $deviceIds
         );
@@ -114,13 +114,13 @@ class TasmotaDataHelper {
         return Database::fetchAll(
             "SELECT d.id, d.name, d.category,
                     tr.energy_today, tr.power,
-                    TIMESTAMPDIFF(MINUTE, tr.timestamp, NOW()) as minutes_ago
+                    TIMESTAMPDIFF(MINUTE, tr.timestamp, UTC_TIMESTAMP()) as minutes_ago
              FROM devices d
              LEFT JOIN (
                  SELECT device_id, energy_today, power, timestamp,
                         ROW_NUMBER() OVER (PARTITION BY device_id ORDER BY timestamp DESC) as rn
                  FROM tasmota_readings
-                 WHERE timestamp >= DATE_SUB(NOW(), INTERVAL 24 HOUR)
+                 WHERE timestamp >= DATE_SUB(UTC_TIMESTAMP(), INTERVAL 24 HOUR)
              ) tr ON d.id = tr.device_id AND tr.rn = 1
              WHERE d.user_id = ? AND d.tasmota_enabled = 1 AND d.is_active = 1
              ORDER BY tr.energy_today DESC",

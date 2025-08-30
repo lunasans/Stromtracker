@@ -41,10 +41,10 @@ try {
     $readings = Database::fetchAll(
         "SELECT device_id, voltage, current, power, energy_today, energy_yesterday, 
                 energy_total, timestamp,
-                TIMESTAMPDIFF(MINUTE, timestamp, NOW()) as minutes_ago
+                TIMESTAMPDIFF(MINUTE, timestamp, UTC_TIMESTAMP()) as minutes_ago
          FROM tasmota_readings 
          WHERE device_id IN ({$placeholders})
-         AND timestamp >= DATE_SUB(NOW(), INTERVAL 2 HOUR)
+         AND timestamp >= DATE_SUB(UTC_TIMESTAMP(), INTERVAL 2 HOUR)
          ORDER BY device_id, timestamp DESC",
         $deviceIds
     );

@@ -3,6 +3,12 @@
 // Datenbankverbindung und erweiterte Database-Klasse für Stromtracker
 
 // =============================================================================
+// SYSTEM-KONFIGURATION
+// =============================================================================
+// Zeitzone für Deutschland setzen (MEZ/MESZ)
+date_default_timezone_set('Europe/Berlin');
+
+// =============================================================================
 // DATENBANK-KONFIGURATION
 // =============================================================================
 define('DB_HOST', 'localhost');
@@ -301,14 +307,16 @@ function formatDate($date) {
     if (empty($date)) {
         return '-';
     }
-    return date('d.m.Y H:i', strtotime($date));
+    // UTC-Zeit aus Datenbank zu lokaler Zeit konvertieren für Anzeige
+    return date('d.m.Y H:i', strtotime($date . ' UTC'));
 }
 
 function formatDateShort($date) {
     if (empty($date)) {
         return '-';
     }
-    return date('d.m.Y', strtotime($date));
+    // UTC-Zeit aus Datenbank zu lokaler Zeit konvertieren für Anzeige
+    return date('d.m.Y', strtotime($date . ' UTC'));
 }
 
 /**
@@ -334,5 +342,49 @@ function logMessage($message, $type = 'info', $file = 'app.log') {
     }
     
     file_put_contents($logDir . '/' . $file, $logEntry, FILE_APPEND | LOCK_EX);
+}
+
+/**
+ * ✅ ZEITZONE: UTC zu MEZ/MESZ konvertieren
+ */
+function convertUtcToLocal($utcTimestamp) {
+    if (empty($utcTimestamp)) {
+        return date('Y-m-d H:i:s'); // Aktuelle lokale Zeit
+    }
+    
+    try {
+        // UTC-Zeitstempel parsen
+        $utcDate = new DateTime($utcTimestamp, new DateTimeZone('UTC'));
+        
+        // Zu lokaler Zeitzone konvertieren
+        $utcDate->setTimezone(new DateTimeZone('Europe/Berlin'));
+        
+        return $utcDate->format('Y-m-d H:i:s');
+    } catch (Exception $e) {
+        error_log("Timezone conversion error: " . $e->getMessage());
+        return date('Y-m-d H:i:s'); // Fallback zu aktueller lokaler Zeit
+    }
+}
+
+/**
+ * ✅ ZEITZONE: MEZ/MESZ zu UTC konvertieren
+ */
+function convertLocalToUtc($localTimestamp) {
+    if (empty($localTimestamp)) {
+        return gmdate('Y-m-d H:i:s'); // Aktuelle UTC-Zeit
+    }
+    
+    try {
+        // Lokalen Zeitstempel parsen
+        $localDate = new DateTime($localTimestamp, new DateTimeZone('Europe/Berlin'));
+        
+        // Zu UTC konvertieren
+        $localDate->setTimezone(new DateTimeZone('UTC'));
+        
+        return $localDate->format('Y-m-d H:i:s');
+    } catch (Exception $e) {
+        error_log("Timezone conversion error: " . $e->getMessage());
+        return gmdate('Y-m-d H:i:s'); // Fallback zu aktueller UTC-Zeit
+    }
 }
 ?>

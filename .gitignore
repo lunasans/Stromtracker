@@ -15,3 +15,4 @@ hash.php
 uploads/profile/profile_1_1756057272.png
 logs/tasmota-debug.log
 api/logs/tasmota-api.log
+schema.json

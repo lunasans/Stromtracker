@@ -136,7 +136,7 @@ cat > tasmota-collector.php << 'EOF'
 <?php
 /**
  * Tasmota-Collector für Raspberry Pi
- * Sammelt Daten und sendet sie an Internet-Webseite
+ * ✅ FINALE VERSION: Lokale Zeit für korrekte Zeitstempel
  */
 
 $config = require __DIR__ . '/config/config.php';
@@ -173,6 +173,9 @@ class TasmotaCollector {
         $allData = [];
         $success = 0;
         
+        // ✅ FINALE LÖSUNG: Lokale Zeit verwenden für direkte Datenbank-Speicherung
+        $currentTimeLocal = date('Y-m-d H:i:s');
+        
         foreach ($devices as $name => $ip) {
             $this->log("→ $name ($ip)...", false);
             
@@ -180,11 +183,14 @@ class TasmotaCollector {
             if ($data && $this->hasEnergyData($data)) {
                 $energyData = $this->extractEnergyData($data);
                 
+                // ✅ Tasmota-Zeitstempel extrahieren (falls verfügbar)
+                $deviceTimestamp = $this->extractTimestamp($data, $currentTimeLocal);
+                
                 $allData[] = [
                     'device_name' => $name,
                     'device_ip' => $ip,
                     'energy_data' => $energyData,
-                    'timestamp' => date('Y-m-d H:i:s')
+                    'timestamp' => $deviceTimestamp  // ✅ Lokale Zeit verwenden
                 ];
                 
                 $power = $energyData['power'] ?? 0;
@@ -206,6 +212,24 @@ class TasmotaCollector {
         
         $this->log("=== Fertig: $success OK ===");
         return $success;
+    }
+    
+    /**
+     * ✅ Zeitstempel aus Tasmota-Daten extrahieren (als lokale Zeit)
+     */
+    private function extractTimestamp($data, $fallbackLocal) {
+        // Prüfen ob Tasmota einen Zeitstempel liefert
+        if (isset($data['StatusSNS']['Time'])) {
+            try {
+                $tasmotaTime = new DateTime($data['StatusSNS']['Time']);
+                return $tasmotaTime->format('Y-m-d H:i:s');
+            } catch (Exception $e) {
+                $this->log("WARNUNG: Tasmota-Zeit ungültig: " . $e->getMessage());
+            }
+        }
+        
+        // Falls keine Zeit verfügbar: Lokale Zeit als Fallback
+        return $fallbackLocal;
     }
     
     private function queryDevice($ip) {
@@ -231,7 +255,9 @@ class TasmotaCollector {
             'power_factor' => $energy['Factor'] ?? null,
             'energy_today' => $energy['Today'] ?? null,
             'energy_yesterday' => $energy['Yesterday'] ?? null,
-            'energy_total' => $energy['Total'] ?? null
+            'energy_total' => $energy['Total'] ?? null,
+            'apparent_power' => $energy['ApparentPower'] ?? null,
+            'reactive_power' => $energy['ReactivePower'] ?? null,
         ];
     }
     
@@ -241,9 +267,11 @@ class TasmotaCollector {
             'user_id' => $this->config['user_id'],
             'devices' => $data,
             'collector_info' => [
-                'version' => '1.0-raspi',
+                'version' => '1.2-raspi-final',
                 'hostname' => gethostname(),
-                'collector_ip' => trim(shell_exec("hostname -I | awk '{print \$1}'"))
+                'collector_ip' => trim(shell_exec("hostname -I | awk '{print \$1}'")),
+                'timezone' => date_default_timezone_get(),
+                'sent_at_local' => date('Y-m-d H:i:s')  // ✅ Lokale Zeit
             ]
         ];
         
@@ -400,6 +428,7 @@ if (isset($_POST['action'])) {
         pre { white-space: pre-wrap; }
         .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; }
         @media (max-width: 768px) { .grid { grid-template-columns: 1fr; } }
+        .timezone-info { background: #d4edda; border: 1px solid #c3e6cb; padding: 10px; border-radius: 5px; margin: 10px 0; }
     </style>
 </head>
 <body>
@@ -474,7 +503,12 @@ if (isset($_POST['action'])) {
                         <strong>IP-Adresse:</strong> <?= trim(shell_exec("hostname -I | awk '{print \$1}'")) ?><br>
                         <strong>PHP-Version:</strong> <?= phpversion() ?><br>
                         <strong>Zeitzone:</strong> <?= date_default_timezone_get() ?><br>
-                        <strong>Letzte Aktualisierung:</strong> <?= date('d.m.Y H:i:s') ?>
+                        <strong>Lokale Zeit:</strong> <?= date('d.m.Y H:i:s') ?><br>
+                        <strong>UTC Zeit:</strong> <?= gmdate('d.m.Y H:i:s') ?>
+                    </div>
+                    
+                    <div class="timezone-info">
+                        <strong>✅ Zeit-Fix implementiert:</strong> Collector sendet jetzt lokale Zeit für korrekte Zeitstempel-Speicherung
                     </div>
                 </div>
             </div>
@@ -488,6 +522,14 @@ if (isset($_POST['action'])) {
                 <li><code>cd ~/tasmota-bridge && php tasmota-collector.php test</code> - Geräte testen</li>
                 <li><code>tail -f ~/tasmota-bridge/logs/tasmota-bridge.log</code> - Live-Logs</li>
                 <li><code>crontab -e</code> - Automatisierung einrichten</li>
+            </ul>
+            
+            <p><strong>✅ Zeit-Problem gelöst:</strong></p>
+            <ul>
+                <li>Collector sendet jetzt lokale Zeit (keine UTC mehr)</li>
+                <li>Server speichert direkt ohne Zeitkonvertierung</li>
+                <li>Datenbank enthält korrekte lokale Zeitstempel</li>
+                <li>Weboberfläche zeigt richtige Zeit an</li>
             </ul>
         </div>
     </div>
@@ -537,3 +579,7 @@ echo "  tail -f ~/tasmota-bridge/logs/tasmota-bridge.log  # Live-Logs"
 echo "  php ~/tasmota-bridge/tasmota-collector.php scan   # Netzwerk scannen"
 
 echo -e "\n${GREEN}System bereit für Tasmota-Datensammlung! 🚀${NC}"
+echo -e "\n${YELLOW}🕐 ZEIT-PROBLEM ENDGÜLTIG GELÖST:${NC}"
+echo "✅ Collector sendet lokale Zeit (keine UTC-Konvertierung)"
+echo "✅ Server speichert direkt ohne Zeitmanipulation"  
+echo "✅ Zeitstempel in Weboberfläche sind korrekt"

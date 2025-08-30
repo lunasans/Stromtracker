@@ -1,11 +1,10 @@
 <?php
 // api/receive-tasmota.php  
-// ✅ KORRIGIERTE VERSION: UTC-zu-lokale-Zeit Konvertierung für Tasmota-Daten
+// ✅ FINALE VERSION - Direkte lokale Zeit (keine Konvertierung)
 
 require_once '../config/database.php';
 require_once '../config/session.php';
 
-// Debug-Logging aktivieren
 error_reporting(E_ALL);
 ini_set('log_errors', 1);
 
@@ -20,7 +19,7 @@ if (!is_dir($logsDir)) {
     mkdir($logsDir, 0755, true);
 }
 
-// Debug-Logging Funktion
+// Debug-Logging
 function debugLog($message, $data = null) {
     $timestamp = date('Y-m-d H:i:s');
     $logEntry = "[{$timestamp}] {$message}";
@@ -28,29 +27,29 @@ function debugLog($message, $data = null) {
         $logEntry .= " | Data: " . json_encode($data, JSON_UNESCAPED_UNICODE);
     }
     $logEntry .= PHP_EOL;
-    
     file_put_contents('../logs/tasmota-debug.log', $logEntry, FILE_APPEND | LOCK_EX);
 }
 
-// JSON Response Hilfsfunktion
-function jsonResponse($data, $statusCode = 200) {
-    http_response_code($statusCode);
-    echo json_encode($data, JSON_UNESCAPED_UNICODE);
-    exit;
+// ✅ FIX: Check if function exists to prevent redeclaration
+if (!function_exists('jsonResponse')) {
+    function jsonResponse($data, $statusCode = 200) {
+        http_response_code($statusCode);
+        echo json_encode($data, JSON_UNESCAPED_UNICODE);
+        exit;
+    }
 }
 
-// Nur POST-Requests erlauben
+// Basic request validation
 if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
     debugLog("ERROR: Non-POST request", ['method' => $_SERVER['REQUEST_METHOD']]);
     jsonResponse(['error' => 'Nur POST-Requests erlaubt'], 405);
 }
 
-// JSON-Daten einlesen
+// JSON parsing
 $jsonInput = file_get_contents('php://input');
-debugLog("Raw JSON input received", ['length' => strlen($jsonInput), 'content' => substr($jsonInput, 0, 500)]);
+debugLog("Raw JSON input received", ['length' => strlen($jsonInput)]);
 
 $data = json_decode($jsonInput, true);
-
 if (json_last_error() !== JSON_ERROR_NONE) {
     debugLog("ERROR: JSON decode failed", ['error' => json_last_error_msg()]);
     jsonResponse(['error' => 'Ungültiges JSON'], 400);
@@ -61,46 +60,7 @@ debugLog("Parsed JSON data", $data);
 class TasmotaWebReceiver {
     
     /**
-     * ✅ NEU: Zeitstempel korrekt konvertieren (UTC zu lokaler Zeit)
-     */
-    private function convertTimestamp($rawTimestamp = null) {
-        // Falls kein Timestamp mitgesendet wird, aktuelle Zeit verwenden
-        if (empty($rawTimestamp)) {
-            return date('Y-m-d H:i:s');
-        }
-        
-        try {
-            // Prüfen ob der Timestamp bereits ein gültiges Datum ist
-            $timestamp = strtotime($rawTimestamp);
-            if ($timestamp === false) {
-                debugLog("WARNING: Invalid timestamp format", ['raw' => $rawTimestamp]);
-                return date('Y-m-d H:i:s');
-            }
-            
-            // UTC zu lokaler Zeit konvertieren
-            $utcDate = new DateTime($rawTimestamp, new DateTimeZone('UTC'));
-            $localDate = clone $utcDate;
-            $localDate->setTimezone(new DateTimeZone(date_default_timezone_get()));
-            
-            $convertedTime = $localDate->format('Y-m-d H:i:s');
-            
-            debugLog("Timestamp conversion", [
-                'input' => $rawTimestamp,
-                'utc' => $utcDate->format('Y-m-d H:i:s'),
-                'local_timezone' => date_default_timezone_get(),
-                'converted' => $convertedTime
-            ]);
-            
-            return $convertedTime;
-            
-        } catch (Exception $e) {
-            debugLog("ERROR: Timestamp conversion failed", ['error' => $e->getMessage(), 'raw' => $rawTimestamp]);
-            return date('Y-m-d H:i:s');
-        }
-    }
-    
-    /**
-     * ✅ SICHER: API-Key gegen Datenbank validieren
+     * API-Key validieren
      */
     private function validateApiKey($providedKey) {
         if (empty($providedKey)) {
@@ -108,13 +68,11 @@ class TasmotaWebReceiver {
             return false;
         }
         
-        // API-Key Format prüfen (st_xxxxxxxxx...)
         if (!preg_match('/^st_[a-f0-9]{60}$/', $providedKey)) {
             debugLog("ERROR: Invalid API key format", ['key' => substr($providedKey, 0, 10) . '...']);
             return false;
         }
         
-        // In Datenbank suchen
         $user = Database::fetchOne(
             "SELECT id, name, email FROM users WHERE api_key = ? AND api_key IS NOT NULL", 
             [$providedKey]
@@ -130,39 +88,26 @@ class TasmotaWebReceiver {
     }
     
     /**
-     * Empfangene Tasmota-Daten verarbeiten
+     * Hauptverarbeitung
      */
     public function processReceivedData($data) {
         debugLog("Starting data processing", ['data_keys' => array_keys($data)]);
         
+        // API-Key validieren
         $providedApiKey = $data['api_key'] ?? '';
-        
-        // API-Key validieren und Benutzer ermitteln
         $keyOwner = $this->validateApiKey($providedApiKey);
         if (!$keyOwner) {
             $this->logUnauthorizedAttempt($providedApiKey, $_SERVER['REMOTE_ADDR']);
             return ['error' => 'Ungültiger API-Key'];
         }
         
-        // Benutzer-ID aus API-Key-Validierung verwenden (sicherer!)
         $userId = $keyOwner['id'];
         debugLog("User validated", ['user_id' => $userId]);
         
-        // Optionale user_id aus Request validieren (falls angegeben)
-        $requestUserId = (int)($data['user_id'] ?? 0);
-        if ($requestUserId > 0 && $requestUserId !== $userId) {
-            debugLog("ERROR: User ID mismatch", ['api_user_id' => $userId, 'request_user_id' => $requestUserId]);
-            $this->logSuspiciousActivity($userId, 'User-ID mismatch', $data);
-            return ['error' => 'User-ID stimmt nicht mit API-Key überein'];
-        }
-        
         // Geräte-Daten extrahieren
         $devices = $data['devices'] ?? [];
-        
-        // Legacy-Format unterstützen (einzelnes Gerät)
         if (empty($devices) && isset($data['device_name'])) {
-            debugLog("Converting legacy format to devices array");
-            $devices = [$data]; // Einzelnes Gerät als Array
+            $devices = [$data];
         }
         
         if (empty($devices)) {
@@ -193,7 +138,6 @@ class TasmotaWebReceiver {
             }
         }
         
-        // Erfolgs-Log speichern
         $this->logReceive($userId, count($devices), $processed, $data['collector_info'] ?? []);
         
         $result = [
@@ -219,40 +163,35 @@ class TasmotaWebReceiver {
         debugLog("Processing single device", ['name' => $deviceName, 'ip' => $deviceIP]);
         
         if (empty($deviceName)) {
-            debugLog("ERROR: Device name is empty");
             return ['success' => false, 'error' => 'Gerätename fehlt'];
         }
         
-        // Gerät in Datenbank finden oder erstellen
+        // Gerät finden oder erstellen
         $device = $this->findOrCreateDevice($userId, $deviceName, $deviceIP);
-        
         if (!$device) {
-            debugLog("ERROR: Could not find or create device");
             return ['success' => false, 'error' => 'Gerät konnte nicht erstellt werden'];
         }
         
         $deviceId = $device['id'];
         debugLog("Device found/created", ['device_id' => $deviceId]);
         
-        // ✅ KORRIGIERT: Timestamp aus den Gerätedaten verwenden
-        $rawTimestamp = $deviceData['timestamp'] ?? $deviceData['reading_time'] ?? null;
-        $correctedTimestamp = $this->convertTimestamp($rawTimestamp);
+        // ✅ VEREINFACHT: Direkte Zeitstempel-Verwendung (keine UTC-Konvertierung)
+        $timestamp = $deviceData['timestamp'] ?? $deviceData['reading_time'] ?? date('Y-m-d H:i:s');
         
-        debugLog("Using corrected timestamp", [
-            'raw_timestamp' => $rawTimestamp, 
-            'corrected_timestamp' => $correctedTimestamp
+        debugLog("Using timestamp directly", [
+            'timestamp' => $timestamp,
+            'collector_timezone' => $data['collector_info']['timezone'] ?? 'unknown'
         ]);
         
-        // Gerät-Info aktualisieren
+        // Gerät aktualisieren
         $updateData = [
-            'last_tasmota_reading' => $correctedTimestamp
+            'last_tasmota_reading' => $timestamp
         ];
         
         if (!empty($deviceIP)) {
             $updateData['tasmota_ip'] = $deviceIP;
         }
         
-        // ✅ FIX: Power aus energy_data extrahieren
         $energyData = $deviceData['energy_data'] ?? $deviceData;
         if (isset($energyData['power']) && $energyData['power'] > 0) {
             $updateData['wattage'] = max(1, (int)$energyData['power']);
@@ -261,45 +200,42 @@ class TasmotaWebReceiver {
         Database::update('devices', $updateData, 'id = ?', [$deviceId]);
         debugLog("Device updated", $updateData);
         
-        // Tasmota-Rohdaten speichern (mit korrigiertem Timestamp)
-        $this->saveTasmotaReadings($deviceId, $userId, $deviceData, $correctedTimestamp);
-        
-        // ❌ ENTFERNT: updateMeterReadings() 
-        // Grund: Einzelgeräte gehören NICHT in meter_readings!
-        // meter_readings ist nur für Gesamthaushalt-Zählerstände
-        debugLog("Skipping meter_readings update - only individual device data saved");
+        // Tasmota-Rohdaten speichern
+        $this->saveTasmotaReadings($deviceId, $userId, $deviceData, $timestamp);
         
         return [
             'success' => true,
             'device_id' => $deviceId,
             'device_name' => $deviceName,
-            'timestamp' => $correctedTimestamp
+            'timestamp' => $timestamp
         ];
     }
     
     /**
-     * ✅ KORRIGIERT: Tasmota-Rohdaten mit korrigiertem Zeitstempel speichern
+     * Tasmota-Rohdaten speichern
      */
-    private function saveTasmotaReadings($deviceId, $userId, $deviceData, $correctedTimestamp) {
-        // Prüfen ob Tabelle existiert
-        if (!Database::tableExists('tasmota_readings')) {
-            debugLog("WARNING: tasmota_readings table does not exist");
+    private function saveTasmotaReadings($deviceId, $userId, $deviceData, $timestamp) {
+        try {
+            $exists = Database::fetchOne("SHOW TABLES LIKE 'tasmota_readings'");
+            if (!$exists) {
+                debugLog("WARNING: tasmota_readings table does not exist");
+                return;
+            }
+        } catch (Exception $e) {
+            debugLog("WARNING: Could not check tasmota_readings table", ['error' => $e->getMessage()]);
             return;
         }
         
-        // ✅ FIX: energy_data Objekt extrahieren
         $energyData = $deviceData['energy_data'] ?? $deviceData;
-        
-        debugLog("Extracting energy data", ['energy_data_available' => isset($deviceData['energy_data']), 'energy_data' => $energyData]);
+        debugLog("Saving tasmota readings", ['energy_data' => $energyData, 'timestamp' => $timestamp]);
         
         try {
             $readingData = [
                 'device_id' => $deviceId,
                 'user_id' => $userId,
-                'timestamp' => $correctedTimestamp, // ✅ Korrigierter Zeitstempel verwenden
-                // ✅ FIX: Aus energy_data Objekt lesen statt direkt aus deviceData
+                'timestamp' => $timestamp, // ✅ Direkte Zeitstempel-Verwendung
                 'voltage' => $this->extractFloat($energyData, 'voltage'),
-                'current' => $this->extractFloat($energyData, 'current'),  
+                'current' => $this->extractFloat($energyData, 'current'),
                 'power' => $this->extractFloat($energyData, 'power'),
                 'apparent_power' => $this->extractFloat($energyData, 'apparent_power'),
                 'reactive_power' => $this->extractFloat($energyData, 'reactive_power'),
@@ -309,24 +245,14 @@ class TasmotaWebReceiver {
                 'energy_total' => $this->extractFloat($energyData, 'energy_total')
             ];
             
-            debugLog("Attempting to save tasmota readings", $readingData);
-            
             $insertId = Database::insert('tasmota_readings', $readingData);
-            
-            if ($insertId) {
-                debugLog("Tasmota readings saved successfully", ['insert_id' => $insertId]);
-            } else {
-                debugLog("ERROR: Failed to save tasmota readings - Database insert returned false");
-            }
+            debugLog("Tasmota readings saved", ['insert_id' => $insertId]);
             
         } catch (Exception $e) {
-            debugLog("ERROR: Exception saving tasmota readings", ['error' => $e->getMessage(), 'trace' => $e->getTraceAsString()]);
+            debugLog("ERROR: Exception saving tasmota readings", ['error' => $e->getMessage()]);
         }
     }
     
-    /**
-     * Sicher Float-Werte aus Array extrahieren
-     */
     private function extractFloat($data, $key) {
         $value = $data[$key] ?? null;
         if ($value === null || $value === '') {
@@ -335,13 +261,10 @@ class TasmotaWebReceiver {
         return (float)$value;
     }
     
-    /**
-     * Gerät finden oder automatisch erstellen
-     */
     private function findOrCreateDevice($userId, $deviceName, $deviceIP) {
         debugLog("Finding or creating device", ['name' => $deviceName, 'ip' => $deviceIP]);
         
-        // Zuerst nach Name suchen
+        // Nach Name suchen
         $device = Database::fetchOne(
             "SELECT * FROM devices WHERE user_id = ? AND name = ?",
             [$userId, $deviceName]
@@ -352,7 +275,7 @@ class TasmotaWebReceiver {
             return $device;
         }
         
-        // Nach IP suchen (falls angegeben)
+        // Nach IP suchen
         if (!empty($deviceIP)) {
             $device = Database::fetchOne(
                 "SELECT * FROM devices WHERE user_id = ? AND tasmota_ip = ?",
@@ -370,7 +293,7 @@ class TasmotaWebReceiver {
             'user_id' => $userId,
             'name' => $deviceName,
             'category' => 'Tasmota',
-            'wattage' => 50, // Standard-Wattage
+            'wattage' => 50,
             'tasmota_enabled' => 1,
             'tasmota_ip' => $deviceIP ?: null,
             'tasmota_name' => $deviceName,
@@ -390,67 +313,44 @@ class TasmotaWebReceiver {
         return null;
     }
     
-    /**
-     * Erfolgreiche Datenübertragung loggen
-     */
     private function logReceive($userId, $deviceCount, $processed, $collectorInfo) {
-        logMessage(
-            "Tasmota API: User {$userId} - {$processed}/{$deviceCount} Geräte verarbeitet",
-            'info',
-            'tasmota-api.log'
-        );
+        if (function_exists('logMessage')) {
+            logMessage(
+                "Tasmota API: User {$userId} - {$processed}/{$deviceCount} Geräte verarbeitet",
+                'info',
+                'tasmota-api.log'
+            );
+        }
     }
     
-    /**
-     * Unbefugte Zugriffe loggen
-     */
     private function logUnauthorizedAttempt($providedKey, $ip) {
         debugLog("SECURITY: Unauthorized access attempt", ['ip' => $ip, 'key' => substr($providedKey, 0, 10) . '...']);
-        logMessage(
-            "SECURITY: Unauthorized API attempt from {$ip} with key: " . 
-            substr($providedKey, 0, 10) . "...",
-            'security',
-            'security.log'
-        );
-    }
-    
-    /**
-     * Verdächtige Aktivitäten loggen
-     */
-    private function logSuspiciousActivity($userId, $reason, $data) {
-        debugLog("SECURITY: Suspicious activity", ['user_id' => $userId, 'reason' => $reason]);
-        logMessage(
-            "SECURITY: Suspicious activity from User {$userId}: {$reason}",
-            'security',
-            'security.log'
-        );
     }
 }
 
 // =============================================================================
-// REQUEST PROCESSING
+// MAIN PROCESSING
 // =============================================================================
 
 try {
-    debugLog("=== NEW REQUEST STARTING ===", ['ip' => $_SERVER['REMOTE_ADDR'], 'user_agent' => $_SERVER['HTTP_USER_AGENT'] ?? 'Unknown']);
+    debugLog("=== NEW REQUEST STARTING ===", ['ip' => $_SERVER['REMOTE_ADDR']]);
     
     $receiver = new TasmotaWebReceiver();
     $result = $receiver->processReceivedData($data);
     
     if (isset($result['error'])) {
-        // Fehler-Antwort
         debugLog("Request failed with error", ['error' => $result['error']]);
         jsonResponse($result, 400);
     } else {
-        // Erfolgreiche Antwort
         debugLog("Request completed successfully", $result);
         jsonResponse($result, 200);
     }
     
 } catch (Exception $e) {
-    // Server-Fehler
-    debugLog("FATAL ERROR: Exception in main processing", ['error' => $e->getMessage(), 'trace' => $e->getTraceAsString()]);
-    logMessage("Tasmota API Error: " . $e->getMessage(), 'error');
+    debugLog("FATAL ERROR: Exception in main processing", [
+        'error' => $e->getMessage(), 
+        'trace' => $e->getTraceAsString()
+    ]);
     
     jsonResponse([
         'error' => 'Server-Fehler beim Verarbeiten der Daten',

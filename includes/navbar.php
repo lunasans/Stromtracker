@@ -93,7 +93,7 @@ $breadcrumbs = [
 ];
 ?>
 
-<nav class="navbar navbar-expand-lg navbar-dark bg-primary shadow-sm">
+<nav class="navbar navbar-expand-lg navbar-dark navbar-custom shadow-sm">
     <div class="container-fluid">
         <!-- Logo/Brand -->
         <a class="navbar-brand d-flex align-items-center" href="dashboard.php">
@@ -141,11 +141,6 @@ $breadcrumbs = [
             
             <!-- User Menu -->
             <ul class="navbar-nav">
-                <!-- System Status -->
-                <li class="nav-item d-flex align-items-center me-3 d-none d-lg-flex">
-                    <span class="energy-indicator me-2"></span>
-                    <small class="system-status-text">System aktiv</small>
-                </li>
                 
                 <!-- User Dropdown mit Profilbild -->
                 <li class="nav-item dropdown">
@@ -278,6 +273,11 @@ $breadcrumbs = [
    NAVBAR - Alle Texte sichtbar
    ====================================== */
 
+/* Navbar Custom Design */
+.navbar-custom {
+    background: linear-gradient(135deg, var(--gray-800), var(--gray-700)) !important;
+}
+
 /* Grundlegende Navbar-Farben */
 .navbar-dark {
     --bs-navbar-color: rgba(255, 255, 255, 0.9) !important;
@@ -334,13 +334,6 @@ $breadcrumbs = [
     height: 2px;
     background: var(--energy);
     border-radius: 1px;
-}
-
-/* System Status Text - explizit weiß */
-.system-status-text {
-    color: rgba(255, 255, 255, 0.8) !important;
-    font-size: 0.875rem !important;
-    font-weight: 500 !important;
 }
 
 /* User Display Info - explizit weiß */
@@ -472,11 +465,14 @@ $breadcrumbs = [
 }
 
 /* Dark Theme Anpassungen */
+[data-theme="dark"] .navbar-custom {
+    background: var(--gray-800) !important;
+}
+
 [data-theme="dark"] .navbar-dark {
     background: var(--gray-800) !important;
 }
 
-[data-theme="dark"] .system-status-text,
 [data-theme="dark"] .user-display-name,
 [data-theme="dark"] .user-display-status,
 [data-theme="dark"] .user-menu-trigger {

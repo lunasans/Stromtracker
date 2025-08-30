@@ -260,10 +260,7 @@ $suggestedDate = date('Y-m-01'); // Erster des aktuellen Monats
 if (!empty($readings)) {
     $lastDate = $readings[0]['reading_date'] ?? '';
     if ($lastDate) {
-        $nextDate = date('Y-m-01', strtotime($lastDate . '+1 month'));
-        if (strtotime($nextDate) <= time()) {
-            $suggestedDate = $nextDate;
-        }
+        $suggestedDate = date('Y-m-01', strtotime($lastDate . '+1 month'));
     }
 }
 

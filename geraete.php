@@ -23,6 +23,7 @@ class TasmotaDataHelper {
     
     /**
      * Neueste Tasmota-Daten aus der Datenbank abrufen
+     * ✅ VERBESSERT: Längerer Zeitraum und besseres Debugging
      */
     public static function getLatestReadings($deviceIds) {
         if (empty($deviceIds)) {
@@ -31,14 +32,15 @@ class TasmotaDataHelper {
         
         $placeholders = str_repeat('?,', count($deviceIds) - 1) . '?';
         
+        // ✅ FIX: Längerer Zeitraum (7 Tage statt 24h) für robustere Datenerfassung
         $readings = Database::fetchAll(
             "SELECT device_id, voltage, current, power, energy_today, energy_yesterday, 
                     energy_total, timestamp,
                     TIMESTAMPDIFF(MINUTE, timestamp, NOW()) as minutes_ago
              FROM tasmota_readings 
              WHERE device_id IN ({$placeholders})
-             AND timestamp >= DATE_SUB(NOW(), INTERVAL 24 HOUR)
-             ORDER BY timestamp DESC",
+             AND timestamp >= DATE_SUB(NOW(), INTERVAL 7 DAY)
+             ORDER BY device_id, timestamp DESC",
             $deviceIds
         );
         
@@ -48,7 +50,17 @@ class TasmotaDataHelper {
             $deviceId = $reading['device_id'];
             if (!isset($latestByDevice[$deviceId])) {
                 $latestByDevice[$deviceId] = $reading;
+                
+                // 🐛 DEBUG: Log für Entwicklung
+                if ($_GET['debug'] ?? false) {
+                    error_log("Latest reading for device {$deviceId}: " . json_encode($reading));
+                }
             }
+        }
+        
+        // 🐛 DEBUG: Anzahl gefundener Geräte
+        if ($_GET['debug'] ?? false) {
+            error_log("Found latest readings for " . count($latestByDevice) . " of " . count($deviceIds) . " devices");
         }
         
         return $latestByDevice;
@@ -56,17 +68,19 @@ class TasmotaDataHelper {
     
     /**
      * Online-Status basierend auf letzter Datenübertragung ermitteln
+     * ✅ VERBESSERT: Längere Online-Zeit für robustere Erkennung
      */
-    public static function getDeviceStatus($lastReading, $maxMinutesOffline = 30) {
+    public static function getDeviceStatus($lastReading, $maxMinutesOffline = 10) {
         if (!$lastReading) {
             return 'unknown';
         }
         
         $minutesAgo = (int)$lastReading['minutes_ago'];
         
+        // ✅ FIX: Tolerantere Zeiten (10min statt 30min)
         if ($minutesAgo <= $maxMinutesOffline) {
             return 'online';
-        } elseif ($minutesAgo <= 120) { // 2 Stunden
+        } elseif ($minutesAgo <= 60) { // 1 Stunde
             return 'warning';
         } else {
             return 'offline';
@@ -647,7 +661,8 @@ include 'includes/navbar.php';
                  data-name="<?= htmlspecialchars(strtolower($device['name'])) ?>"
                  data-category="<?= htmlspecialchars($device['category']) ?>"
                  data-type="<?= $isTasmota ? 'tasmota' : 'normal' ?>"
-                 data-status="<?= $status ?>">
+                 data-status="<?= $status ?>"
+                 data-device-id="<?= $device['id'] ?>">
                 
                 <div class="card device-card <?= $isTasmota ? 'tasmota-device' : '' ?>">
                     
@@ -688,7 +703,17 @@ include 'includes/navbar.php';
                             </div>
                             <div class="col-6 text-end">
                                 <small class="text-muted">Leistung:</small><br>
-                                <strong><?= $device['wattage'] ?>W</strong>
+                                <?php if ($isTasmota && $energyData && $energyData['power'] > 0): ?>
+                                    <!-- ✅ LIVE-WATTAGE: Aus aktuellen Messdaten -->
+                                    <strong class="text-warning"><?= number_format($energyData['power'], 0) ?>W</strong>
+                                    <small class="text-muted d-block">Max: <?= $device['wattage'] ?>W</small>
+                                <?php else: ?>
+                                    <!-- 📋 STATISCHE LEISTUNG: Aus Geräte-Konfiguration -->
+                                    <strong><?= $device['wattage'] ?>W</strong>
+                                    <?php if ($isTasmota): ?>
+                                        <small class="text-muted d-block">Konfiguriert</small>
+                                    <?php endif; ?>
+                                <?php endif; ?>
                             </div>
                         </div>
                         
@@ -1170,17 +1195,54 @@ document.addEventListener('click', function(e) {
     }
 });
 
-// Auto-Refresh für Tasmota-Daten (alle 60 Sekunden)
+// ✅ VERBESSERTES Auto-Refresh: Schneller und mit Live-Werten
 setInterval(function() {
     if (document.visibilityState === 'visible') {
-        // Seite nur neu laden wenn Tasmota-Geräte vorhanden
         const tasmotaDevices = document.querySelectorAll('.tasmota-device');
         if (tasmotaDevices.length > 0) {
-            // Charts refreshen statt komplette Seite
+            // Live-Werte aktualisieren (alle 30 Sekunden)
+            refreshLiveValues();
+            
+            // Charts refreshen (alle 60 Sekunden)
             refreshTasmotaCharts();
         }
     }
-}, 60000);
+}, 30000); // ✅ Schnellerer Refresh: 30s statt 60s
+
+// Neue Funktion: Live-Werte ohne kompletten Seitenreload aktualisieren
+function refreshLiveValues() {
+    fetch('api/live-device-data.php')
+        .then(response => response.json())
+        .then(data => {
+            if (data.success) {
+                // Wattage-Anzeigen aktualisieren
+                Object.entries(data.devices).forEach(([deviceId, deviceData]) => {
+                    updateDeviceLiveData(deviceId, deviceData);
+                });
+            }
+        })
+        .catch(error => {
+            console.debug('Live data refresh failed:', error);
+        });
+}
+
+// Live-Daten für einzelnes Gerät aktualisieren
+function updateDeviceLiveData(deviceId, data) {
+    // Leistungsanzeige aktualisieren
+    const powerElement = document.querySelector(`[data-device-id="${deviceId}"] .live-power`);
+    if (powerElement && data.power) {
+        powerElement.textContent = Math.round(data.power) + 'W';
+    }
+    
+    // Status-Indicator aktualisieren
+    const statusElement = document.querySelector(`[data-device-id="${deviceId}"] .status-indicator`);
+    if (statusElement) {
+        statusElement.className = `status-indicator status-${data.status || 'unknown'}`;
+    }
+    
+    // Aktuelle Werte aktualisieren falls vorhanden
+    updateCurrentValues(deviceId, data.current);
+}
 
 // =============================================================================
 // TASMOTA CHART FUNKTIONALITÄT

@@ -175,12 +175,11 @@ class TasmotaWebReceiver {
         $deviceId = $device['id'];
         debugLog("Device found/created", ['device_id' => $deviceId]);
         
-        // ✅ KORREKT: UTC-Zeitstempel DIREKT verwenden (keine Konvertierung)
-        $timestamp = $deviceData['timestamp'] ?? $deviceData['reading_time'] ?? gmdate('Y-m-d H:i:s');
+        // ✅ FINAL: Tasmota sendet deutsche Zeit - direkt verwenden
+        $timestamp = $deviceData['timestamp'] ?? $deviceData['reading_time'] ?? date('Y-m-d H:i:s');
         
-        debugLog("Using UTC timestamp directly", [
-            'timestamp' => $timestamp,
-            'collector_timezone' => $data['collector_info']['timezone'] ?? 'UTC'
+        debugLog("Using timestamp from Tasmota", [
+            'timestamp' => $timestamp
         ]);
         
         // Gerät aktualisieren
@@ -233,7 +232,7 @@ class TasmotaWebReceiver {
             $readingData = [
                 'device_id' => $deviceId,
                 'user_id' => $userId,
-                'timestamp' => $timestamp, // ✅ UTC-Zeitstempel direkt (keine Konvertierung)
+                'timestamp' => $timestamp, // ✅ Tasmota sendet bereits deutsche Zeit
                 'voltage' => $this->extractFloat($energyData, 'voltage'),
                 'current' => $this->extractFloat($energyData, 'current'),
                 'power' => $this->extractFloat($energyData, 'power'),

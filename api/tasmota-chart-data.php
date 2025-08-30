@@ -34,9 +34,9 @@ if (!$device) {
     exit;
 }
 
-// Zeitraum (UTC-basiert)
+// Zeitraum
 $minutes = (int)$timeRange;
-$startTime = gmdate('Y-m-d H:i:s', strtotime("-{$minutes} minutes"));
+$startTime = date('Y-m-d H:i:s', strtotime("-{$minutes} minutes"));
 
 // Chart-Daten laden
 $readings = Database::fetchAll(
@@ -69,9 +69,7 @@ $labels = [];
 $data = [];
 
 foreach ($readings as $reading) {
-    // UTC-Zeitstempel zu lokaler Zeit für Chart-Anzeige konvertieren
-    $localTime = date('H:i', strtotime($reading['timestamp'] . ' UTC'));
-    $labels[] = $localTime;
+    $labels[] = date('H:i', strtotime($reading['timestamp']));
     
     switch ($chartType) {
         case 'power':

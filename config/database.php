@@ -6,7 +6,7 @@
 // SYSTEM-KONFIGURATION
 // =============================================================================
 // Zeitzone für Deutschland setzen (MEZ/MESZ)
-date_default_timezone_set('Europe/Berlin');
+// date_default_timezone_set('Europe/Berlin');
 
 // =============================================================================
 // DATENBANK-KONFIGURATION
@@ -307,16 +307,14 @@ function formatDate($date) {
     if (empty($date)) {
         return '-';
     }
-    // UTC-Zeit aus Datenbank zu lokaler Zeit konvertieren für Anzeige
-    return date('d.m.Y H:i', strtotime($date . ' UTC'));
+    return date('d.m.Y H:i', strtotime($date));
 }
 
 function formatDateShort($date) {
     if (empty($date)) {
         return '-';
     }
-    // UTC-Zeit aus Datenbank zu lokaler Zeit konvertieren für Anzeige
-    return date('d.m.Y', strtotime($date . ' UTC'));
+    return date('d.m.Y', strtotime($date));
 }
 
 /**

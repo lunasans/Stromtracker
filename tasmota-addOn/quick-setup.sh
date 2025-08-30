@@ -37,7 +37,7 @@ LOCAL_IP=$(hostname -I | awk '{print $1}')
 NETWORK=$(echo $LOCAL_IP | cut -d. -f1-3)
 
 echo "Pi-IP: $LOCAL_IP"
-echo "Suche in: ${NETWORK}.100-120"
+echo "Suche in: ${NETWORK}.2-254"
 
 # Gefundene Geräte sammeln
 echo "# Gefundene Tasmota-Geräte" > config/discovered-devices.txt

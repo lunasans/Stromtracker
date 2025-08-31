@@ -95,30 +95,50 @@ $tasmotaDevices = Database::fetchAll(
     [$userId]
 ) ?: [];
 
-// Monatliche Verbrauchsdaten für jedes Smart-Gerät
+// Monatliche Verbrauchsdaten für jedes Smart-Gerät - DEBUG VERSION
 $tasmotaMonthlyData = [];
 foreach ($tasmotaDevices as $device) {
-    // Vereinfachte Abfrage: Höchsten energy_today pro Tag, dann Monatssum
+    // DEBUG: Schauen wir uns die rohen Daten an
+    $debugData = Database::fetchAll(
+        "SELECT DATE(timestamp) as day, MIN(energy_today) as min_energy, MAX(energy_today) as max_energy, COUNT(*) as readings_count
+         FROM tasmota_readings 
+         WHERE device_id = ? AND timestamp >= DATE_SUB(CURDATE(), INTERVAL 7 DAY)
+         AND energy_today IS NOT NULL AND energy_today > 0
+         GROUP BY DATE(timestamp)
+         ORDER BY day DESC LIMIT 5",
+        [$device['id']]
+    );
+    
+    error_log("DEBUG Gerät {$device['name']} (ID: {$device['id']}): " . json_encode($debugData));
+    
+    // Versuche verschiedene Ansätze für monatliche Daten
     $monthlyData = Database::fetchAll(
         "SELECT 
             DATE_FORMAT(day_date, '%Y-%m') as month,
             DATE_FORMAT(day_date, '%m/%Y') as month_label,
             YEAR(day_date) as year,
             MONTH(day_date) as month_num,
-            SUM(daily_kwh) as total_kwh
+            ROUND(AVG(daily_kwh), 2) as total_kwh  -- Durchschnitt statt Summe zum Test
          FROM (
              SELECT 
                  DATE(timestamp) as day_date,
-                 MAX(CASE WHEN energy_today > 0 AND energy_today <= 50 THEN energy_today ELSE 0 END) as daily_kwh
+                 MAX(energy_today) as daily_kwh
              FROM tasmota_readings
-             WHERE device_id = ? AND timestamp >= DATE_SUB(CURDATE(), INTERVAL 12 MONTH)
+             WHERE device_id = ? 
+             AND timestamp >= DATE_SUB(CURDATE(), INTERVAL 12 MONTH)
+             AND energy_today IS NOT NULL AND energy_today > 0 AND energy_today < 100
              GROUP BY DATE(timestamp)
+             HAVING MAX(energy_today) > 0
          ) daily_summary
+         WHERE daily_kwh > 0
          GROUP BY DATE_FORMAT(day_date, '%Y-%m')
          ORDER BY year DESC, month_num DESC
          LIMIT 12",
         [$device['id']]
     ) ?: [];
+    
+    // Debug-Ausgabe für monatliche Werte
+    error_log("Monthly data für {$device['name']}: " . json_encode($monthlyData));
     
     if (!empty($monthlyData)) {
         $tasmotaMonthlyData[$device['id']] = [
@@ -850,7 +870,17 @@ document.addEventListener('DOMContentLoaded', function() {
                             labels: deviceInfo.data.map(item => item.month_label || 'N/A'),
                             datasets: [{
                                 label: `${deviceInfo.device.name} (kWh)`,
-                                data: deviceInfo.data.map(item => parseFloat(item.total_kwh) || 0),
+                                // DEBUG: Limitiere Werte und logge sie
+                                data: deviceInfo.data.map(item => {
+                                    let value = parseFloat(item.total_kwh) || 0;
+                                    // Begrenze unrealistisch hohe Werte
+                                    if (value > 1000) {
+                                        console.warn(`Extrem hoher Wert für ${deviceInfo.device.name}: ${value} kWh - begrenzt auf 50`);
+                                        value = Math.min(value / 20, 50); // Teile durch 20 oder max 50
+                                    }
+                                    console.log(`${deviceInfo.device.name} - ${item.month_label}: ${value} kWh`);
+                                    return value;
+                                }),
                                 backgroundColor: color.bg,
                                 borderColor: color.border,
                                 borderWidth: 2,

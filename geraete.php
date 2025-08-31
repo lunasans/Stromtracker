@@ -23,7 +23,7 @@ class TasmotaDataHelper {
     
     /**
      * Neueste Tasmota-Daten aus der Datenbank abrufen
-     * ✅ VERBESSERT: Längerer Zeitraum und besseres Debugging
+     * ✅ KORRIGIERT: Verwendet NOW() statt UTC_TIMESTAMP() für lokale Zeitzone
      */
     public static function getLatestReadings($deviceIds) {
         if (empty($deviceIds)) {
@@ -32,7 +32,7 @@ class TasmotaDataHelper {
         
         $placeholders = str_repeat('?,', count($deviceIds) - 1) . '?';
         
-        // ✅ ZURÜCK ZU NOW() für korrekte minutes_ago Berechnung
+        // ✅ FIX: NOW() statt UTC_TIMESTAMP() für lokale Zeitvergleiche
         $readings = Database::fetchAll(
             "SELECT device_id, voltage, current, power, energy_today, energy_yesterday, 
                     energy_total, timestamp,
@@ -49,6 +49,8 @@ class TasmotaDataHelper {
         foreach ($readings as $reading) {
             $deviceId = $reading['device_id'];
             if (!isset($latestByDevice[$deviceId])) {
+                // ✅ FIX: Sicherstellen, dass minutes_ago nicht negativ ist
+                $reading['minutes_ago'] = max(0, (int)$reading['minutes_ago']);
                 $latestByDevice[$deviceId] = $reading;
                 
                 // 🐛 DEBUG: Log für Entwicklung
@@ -89,6 +91,7 @@ class TasmotaDataHelper {
     
     /**
      * Formatierte Energiedaten für Anzeige
+     * ✅ VERBESSERT: Zusätzliche Validierung der Zeitwerte
      */
     public static function formatEnergyData($reading) {
         if (!$reading) {
@@ -103,12 +106,13 @@ class TasmotaDataHelper {
             'voltage' => (float)$reading['voltage'],
             'current' => (float)$reading['current'],
             'timestamp' => $reading['timestamp'],
-            'minutes_ago' => (int)$reading['minutes_ago']
+            'minutes_ago' => max(0, (int)$reading['minutes_ago']) // ✅ Nie negativ
         ];
     }
     
     /**
      * Tagesstatistiken für Tasmota-Geräte
+     * ✅ KORRIGIERT: NOW() statt UTC_TIMESTAMP()
      */
     public static function getDailyStats($userId) {
         return Database::fetchAll(
@@ -364,16 +368,10 @@ include 'includes/navbar.php';
     position: relative;
 }
 
-.tasmota-badge {
-    position: absolute;
-    top: 10px;
-    right: 10px;
-    background: #28a745;
-    color: white;
-    font-size: 0.7em;
+.tasmota-inline-badge {
+    font-size: 0.65em;
+    font-weight: 600;
     padding: 2px 6px;
-    border-radius: 10px;
-    font-weight: bold;
 }
 
 .energy-grid {
@@ -415,6 +413,7 @@ include 'includes/navbar.php';
 .status-online { background-color: #28a745; }
 .status-offline { background-color: #dc3545; }
 .status-unknown { background-color: #ffc107; }
+.status-warning { background-color: #fd7e14; }
 
 /* Chart-Container */
 .tasmota-charts {
@@ -519,6 +518,22 @@ include 'includes/navbar.php';
 .control-buttons .btn {
     font-size: 0.8em;
     padding: 3px 8px;
+}
+
+/* Time Display Fixes */
+.time-display {
+    font-weight: 500;
+}
+
+.time-display .live-indicator {
+    color: #28a745;
+    font-weight: bold;
+    animation: blink 1.5s ease-in-out infinite alternate;
+}
+
+@keyframes blink {
+    from { opacity: 1; }
+    to { opacity: 0.7; }
 }
 
 /* Dark Theme Support */
@@ -666,19 +681,20 @@ include 'includes/navbar.php';
                 
                 <div class="card device-card <?= $isTasmota ? 'tasmota-device' : '' ?>">
                     
-                    <?php if ($isTasmota): ?>
-                        <div class="tasmota-badge">SMART</div>
-                    <?php endif; ?>
-                    
                     <div class="card-body">
                         <!-- Geräte-Header -->
                         <div class="d-flex justify-content-between align-items-start mb-2">
-                            <h6 class="card-title mb-0">
+                            <div class="d-flex align-items-center gap-2">
+                                <h6 class="card-title mb-0">
+                                    <?php if ($isTasmota): ?>
+                                        <span class="status-indicator status-<?= $status ?>"></span>
+                                    <?php endif; ?>
+                                    <?= htmlspecialchars($device['name']) ?>
+                                </h6>
                                 <?php if ($isTasmota): ?>
-                                    <span class="status-indicator status-<?= $status ?>"></span>
+                                    <span class="badge bg-success text-white tasmota-inline-badge">SMART</span>
                                 <?php endif; ?>
-                                <?= htmlspecialchars($device['name']) ?>
-                            </h6>
+                            </div>
                             <div class="dropdown">
                                 <button class="btn btn-sm btn-outline-secondary" type="button" data-bs-toggle="dropdown">
                                     <i class="bi bi-three-dots"></i>
@@ -763,10 +779,12 @@ include 'includes/navbar.php';
                             
                             <!-- Zeitstempel -->
                             <div class="mt-2">
-                                <small class="text-muted">
+                                <small class="text-muted time-display">
                                     <i class="bi bi-clock"></i> 
-                                    <?php if ($energyData['minutes_ago'] < 5): ?>
-                                        Vor <?= $energyData['minutes_ago'] ?> Min. • <span class="text-success">Live</span>
+                                    <?php if ($energyData['minutes_ago'] === 0): ?>
+                                        <span class="live-indicator">Live</span> • Jetzt
+                                    <?php elseif ($energyData['minutes_ago'] < 5): ?>
+                                        Vor <?= $energyData['minutes_ago'] ?> Min. • <span class="live-indicator">Live</span>
                                     <?php elseif ($energyData['minutes_ago'] < 60): ?>
                                         Vor <?= $energyData['minutes_ago'] ?> Min.
                                     <?php else: ?>

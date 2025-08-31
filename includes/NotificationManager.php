@@ -371,8 +371,8 @@ class NotificationManager {
      */
     private static function saveVerificationCode($userId, $code) {
         // In echtem System: Redis/Memcached mit Ablaufzeit
-        // Hier: Einfache Datenbankspeisung
-        Database::query(
+        // Hier: Einfache Datenbankspeisung mit execute
+        Database::execute(
             "INSERT INTO telegram_log (user_id, chat_id, message_type, message_text, status) 
              VALUES (?, 'VERIFICATION', 'verification', ?, 'pending')
              ON DUPLICATE KEY UPDATE message_text = VALUES(message_text)",

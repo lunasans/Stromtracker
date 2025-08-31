@@ -87,6 +87,47 @@ $yearlyComparison = Database::fetchAll(
     [$userId]
 ) ?: [];
 
+// Tasmota Smart-Geräte monatlicher Verbrauch
+$tasmotaDevices = Database::fetchAll(
+    "SELECT id, name, category FROM devices 
+     WHERE user_id = ? AND tasmota_enabled = 1 AND is_active = 1
+     ORDER BY name ASC",
+    [$userId]
+) ?: [];
+
+// Monatliche Verbrauchsdaten für jedes Smart-Gerät
+$tasmotaMonthlyData = [];
+foreach ($tasmotaDevices as $device) {
+    // Vereinfachte Abfrage: Höchsten energy_today pro Tag, dann Monatssum
+    $monthlyData = Database::fetchAll(
+        "SELECT 
+            DATE_FORMAT(day_date, '%Y-%m') as month,
+            DATE_FORMAT(day_date, '%m/%Y') as month_label,
+            YEAR(day_date) as year,
+            MONTH(day_date) as month_num,
+            SUM(daily_kwh) as total_kwh
+         FROM (
+             SELECT 
+                 DATE(timestamp) as day_date,
+                 MAX(CASE WHEN energy_today > 0 AND energy_today <= 50 THEN energy_today ELSE 0 END) as daily_kwh
+             FROM tasmota_readings
+             WHERE device_id = ? AND timestamp >= DATE_SUB(CURDATE(), INTERVAL 12 MONTH)
+             GROUP BY DATE(timestamp)
+         ) daily_summary
+         GROUP BY DATE_FORMAT(day_date, '%Y-%m')
+         ORDER BY year DESC, month_num DESC
+         LIMIT 12",
+        [$device['id']]
+    ) ?: [];
+    
+    if (!empty($monthlyData)) {
+        $tasmotaMonthlyData[$device['id']] = [
+            'device' => $device,
+            'data' => array_reverse($monthlyData) // Chronologische Reihenfolge
+        ];
+    }
+}
+
 // Aktuelle Statistiken
 $currentYear = date('Y');
 $currentStats = [
@@ -130,6 +171,15 @@ $currentStats = [
 include 'includes/header.php';
 include 'includes/navbar.php';
 ?>
+
+<!-- CSS Fixes -->
+<style>
+.flex-between {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+}
+</style>
 
 <!-- Auswertung Content -->
 <div class="container-fluid py-4">
@@ -383,7 +433,7 @@ include 'includes/navbar.php';
                             <h6 class="mb-3">Extreme Werte:</h6>
                             
                             <div class="d-flex justify-content-between align-items-center mb-3 p-3 rounded" 
-                                 style="background: rgba(var(--danger), 0.1);">
+                                 style="background: rgba(239, 68, 68, 0.1);">
                                 <span>
                                     <i class="bi bi-arrow-up text-danger me-2"></i>
                                     <strong>Höchster Verbrauch:</strong>
@@ -395,7 +445,7 @@ include 'includes/navbar.php';
                             </div>
                             
                             <div class="d-flex justify-content-between align-items-center p-3 rounded" 
-                                 style="background: rgba(var(--success), 0.1);">
+                                 style="background: rgba(16, 185, 129, 0.1);">
                                 <span>
                                     <i class="bi bi-arrow-down text-success me-2"></i>
                                     <strong>Niedrigster Verbrauch:</strong>
@@ -411,6 +461,73 @@ include 'includes/navbar.php';
             </div>
         </div>
     </div>
+    
+    <!-- Smart-Geräte monatlicher Verbrauch -->
+    <?php if (!empty($tasmotaMonthlyData)): ?>
+    <div class="row mt-5">
+        <div class="col-12">
+            <div class="card">
+                <div class="card-header">
+                    <h5 class="mb-0">
+                        <i class="bi bi-wifi text-success"></i>
+                        Smart-Geräte Verbrauch (Letzte 12 Monate)
+                    </h5>
+                    <small class="text-muted">Monatlicher kWh-Verbrauch für alle Tasmota-Geräte</small>
+                </div>
+                <div class="card-body">
+                    <div class="row">
+                        <?php foreach ($tasmotaMonthlyData as $deviceId => $deviceData): ?>
+                            <div class="col-xl-6 col-lg-12 mb-4">
+                                <div class="card border-success">
+                                    <div class="card-header bg-success bg-gradient text-white py-2">
+                                        <h6 class="mb-0">
+                                            <i class="bi bi-cpu me-2"></i>
+                                            <?= htmlspecialchars($deviceData['device']['name']) ?>
+                                        </h6>
+                                        <small class="opacity-75">
+                                            <?= htmlspecialchars($deviceData['device']['category']) ?>
+                                        </small>
+                                    </div>
+                                    <div class="card-body">
+                                        <!-- Statistiken -->
+                                        <?php 
+                                            $totalKwh = array_sum(array_column($deviceData['data'], 'total_kwh'));
+                                            $avgKwh = count($deviceData['data']) > 0 ? $totalKwh / count($deviceData['data']) : 0;
+                                            $maxMonth = !empty($deviceData['data']) ? max(array_column($deviceData['data'], 'total_kwh')) : 0;
+                                        ?>
+                                        <div class="row mb-3 text-center">
+                                            <div class="col-4">
+                                                <div class="p-2 rounded" style="background: rgba(16, 185, 129, 0.1);">
+                                                    <div class="fw-bold text-success"><?= number_format($totalKwh, 1) ?></div>
+                                                    <small class="text-muted">Total kWh</small>
+                                                </div>
+                                            </div>
+                                            <div class="col-4">
+                                                <div class="p-2 rounded" style="background: rgba(59, 130, 246, 0.1);">
+                                                    <div class="fw-bold text-primary"><?= number_format($avgKwh, 1) ?></div>
+                                                    <small class="text-muted">⌀ Monat</small>
+                                                </div>
+                                            </div>
+                                            <div class="col-4">
+                                                <div class="p-2 rounded" style="background: rgba(249, 115, 22, 0.1);">
+                                                    <div class="fw-bold text-warning"><?= number_format($maxMonth, 1) ?></div>
+                                                    <small class="text-muted">Max kWh</small>
+                                                </div>
+                                            </div>
+                                        </div>
+                                        
+                                        <!-- Chart -->
+                                        <canvas id="tasmotaChart_<?= $deviceId ?>" style="height: 200px;"></canvas>
+                                    </div>
+                                </div>
+                            </div>
+                        <?php endforeach; ?>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+    <?php endif; ?>
     
     <!-- Jahresvergleich Tabelle -->
     <?php if (!empty($yearlyComparison)): ?>
@@ -477,216 +594,355 @@ include 'includes/navbar.php';
 
 <!-- JavaScript für Charts -->
 <script>
-// Chart-Daten von PHP vorbereiten
-const chartData = <?= json_encode($chartData) ?>;
-const yearlyData = <?= json_encode($yearlyComparison) ?>;
+// ✅ IMMER alle Variablen definieren - verhindert JavaScript-Fehler
+const chartData = <?= json_encode($chartData) ?> || [];
+const yearlyData = <?= json_encode($yearlyComparison) ?> || [];
+const tasmotaData = <?= json_encode($tasmotaMonthlyData) ?> || {};
+
+console.log('=== DEBUGGING INFO ===');
+console.log('Chart.js verfügbar:', typeof Chart !== 'undefined');
+console.log('chartData Länge:', chartData.length);
+console.log('yearlyData Länge:', yearlyData.length); 
+console.log('tasmotaData Keys:', Object.keys(tasmotaData));
+
+// Prüfe ob Chart.js geladen ist
+if (typeof Chart === 'undefined') {
+    console.error('Chart.js ist nicht geladen!');
+    alert('Chart.js Library konnte nicht geladen werden. Bitte Seite neu laden.');
+}
 
 // Chart-Konfiguration mit Energy-Theme
-Chart.defaults.font.family = "'Inter', sans-serif";
-Chart.defaults.color = 'rgb(75, 85, 99)'; // --gray-600
+if (typeof Chart !== 'undefined') {
+    Chart.defaults.font.family = "'Inter', sans-serif";
+    Chart.defaults.color = 'rgb(75, 85, 99)';
+}
 
 // Farben für konsistentes Design
 const colors = {
-    energy: 'rgb(245, 158, 11)',     // --energy
+    energy: 'rgb(245, 158, 11)',
     energyLight: 'rgba(245, 158, 11, 0.1)',
-    success: 'rgb(16, 185, 129)',     // --success
+    success: 'rgb(16, 185, 129)',
     successLight: 'rgba(16, 185, 129, 0.1)',
-    primary: 'rgb(59, 130, 246)',     // --primary
+    primary: 'rgb(59, 130, 246)',
     primaryLight: 'rgba(59, 130, 246, 0.1)',
-    warning: 'rgb(249, 115, 22)',     // --warning
+    warning: 'rgb(249, 115, 22)',
     warningLight: 'rgba(249, 115, 22, 0.1)',
-    gray: 'rgb(156, 163, 175)'        // --gray-400
+    gray: 'rgb(156, 163, 175)'
 };
 
 document.addEventListener('DOMContentLoaded', function() {
+    console.log('DOM loaded, initializing charts...');
     
-    // 1. Verbrauchsverlauf Chart
-    if (chartData.length > 0) {
-        const consumptionCtx = document.getElementById('consumptionChart').getContext('2d');
-        new Chart(consumptionCtx, {
-            type: 'line',
-            data: {
-                labels: chartData.map(item => item.month_label),
-                datasets: [{
-                    label: 'Verbrauch (kWh)',
-                    data: chartData.map(item => parseFloat(item.consumption) || 0),
-                    borderColor: colors.energy,
-                    backgroundColor: colors.energyLight,
-                    borderWidth: 3,
-                    fill: true,
-                    tension: 0.4,
-                    pointBackgroundColor: colors.energy,
-                    pointBorderColor: '#ffffff',
-                    pointBorderWidth: 2,
-                    pointRadius: 6
-                }]
-            },
-            options: {
-                responsive: true,
-                maintainAspectRatio: false,
-                plugins: {
-                    legend: {
-                        display: false
-                    },
-                    tooltip: {
-                        backgroundColor: 'rgba(0, 0, 0, 0.8)',
-                        titleColor: '#ffffff',
-                        bodyColor: '#ffffff',
-                        borderColor: colors.energy,
-                        borderWidth: 1,
-                        cornerRadius: 8,
-                        callbacks: {
-                            label: function(context) {
-                                return `Verbrauch: ${context.parsed.y.toFixed(1)} kWh`;
-                            }
-                        }
-                    }
-                },
-                scales: {
-                    y: {
-                        beginAtZero: true,
-                        grid: {
-                            color: 'rgba(0, 0, 0, 0.1)'
-                        },
-                        ticks: {
-                            callback: function(value) {
-                                return value + ' kWh';
-                            }
-                        }
-                    },
-                    x: {
-                        grid: {
-                            display: false
-                        }
-                    }
-                }
-            }
-        });
+    // Prüfe nochmal Chart.js
+    if (typeof Chart === 'undefined') {
+        console.error('Chart.js ist immer noch nicht verfügbar nach DOM-Ready');
+        return;
     }
+    
+    try {
+        // 1. Verbrauchsverlauf Chart
+        if (chartData && chartData.length > 0) {
+            console.log('Creating consumption chart...');
+            const consumptionCanvas = document.getElementById('consumptionChart');
+            if (consumptionCanvas) {
+                const consumptionCtx = consumptionCanvas.getContext('2d');
+                new Chart(consumptionCtx, {
+                    type: 'line',
+                    data: {
+                        labels: chartData.map(item => item.month_label || 'N/A'),
+                        datasets: [{
+                            label: 'Verbrauch (kWh)',
+                            data: chartData.map(item => parseFloat(item.consumption) || 0),
+                            borderColor: colors.energy,
+                            backgroundColor: colors.energyLight,
+                            borderWidth: 3,
+                            fill: true,
+                            tension: 0.4,
+                            pointBackgroundColor: colors.energy,
+                            pointBorderColor: '#ffffff',
+                            pointBorderWidth: 2,
+                            pointRadius: 6
+                        }]
+                    },
+                    options: {
+                        responsive: true,
+                        maintainAspectRatio: false,
+                        plugins: {
+                            legend: { display: false },
+                            tooltip: {
+                                backgroundColor: 'rgba(0, 0, 0, 0.8)',
+                                titleColor: '#ffffff',
+                                bodyColor: '#ffffff',
+                                borderColor: colors.energy,
+                                borderWidth: 1,
+                                cornerRadius: 8,
+                                callbacks: {
+                                    label: function(context) {
+                                        return `Verbrauch: ${context.parsed.y.toFixed(1)} kWh`;
+                                    }
+                                }
+                            }
+                        },
+                        scales: {
+                            y: {
+                                beginAtZero: true,
+                                grid: { color: 'rgba(0, 0, 0, 0.1)' },
+                                ticks: {
+                                    callback: function(value) {
+                                        return value + ' kWh';
+                                    }
+                                }
+                            },
+                            x: {
+                                grid: { display: false }
+                            }
+                        }
+                    }
+                });
+                console.log('✅ Consumption chart created');
+            } else {
+                console.log('❌ consumptionChart canvas not found');
+            }
+        } else {
+            console.log('⚠️ No chartData available for consumption chart');
+        }
 
-    // 2. Jahresvergleich Chart (Doughnut)
-    if (yearlyData.length > 0) {
-        const yearCtx = document.getElementById('yearComparisonChart').getContext('2d');
-        const chartColors = [colors.energy, colors.primary, colors.success, colors.warning, colors.gray];
+        // 2. Jahresvergleich Chart (Doughnut)
+        if (yearlyData && yearlyData.length > 0) {
+            console.log('Creating year comparison chart...');
+            const yearCanvas = document.getElementById('yearComparisonChart');
+            if (yearCanvas) {
+                const yearCtx = yearCanvas.getContext('2d');
+                const chartColors = [colors.energy, colors.primary, colors.success, colors.warning, colors.gray];
+                
+                new Chart(yearCtx, {
+                    type: 'doughnut',
+                    data: {
+                        labels: yearlyData.map(item => item.year.toString()),
+                        datasets: [{
+                            data: yearlyData.map(item => parseFloat(item.total_consumption) || 0),
+                            backgroundColor: chartColors.slice(0, yearlyData.length),
+                            borderWidth: 2,
+                            borderColor: '#ffffff'
+                        }]
+                    },
+                    options: {
+                        responsive: true,
+                        maintainAspectRatio: false,
+                        plugins: {
+                            legend: {
+                                position: 'bottom',
+                                labels: { padding: 20, usePointStyle: true }
+                            },
+                            tooltip: {
+                                backgroundColor: 'rgba(0, 0, 0, 0.8)',
+                                titleColor: '#ffffff',
+                                bodyColor: '#ffffff',
+                                cornerRadius: 8,
+                                callbacks: {
+                                    label: function(context) {
+                                        const value = context.parsed;
+                                        const total = context.dataset.data.reduce((a, b) => a + b, 0);
+                                        const percentage = ((value / total) * 100).toFixed(1);
+                                        return `${context.label}: ${value.toFixed(1)} kWh (${percentage}%)`;
+                                    }
+                                }
+                            }
+                        }
+                    }
+                });
+                console.log('✅ Year comparison chart created');
+            } else {
+                console.log('❌ yearComparisonChart canvas not found');
+            }
+        } else {
+            console.log('⚠️ No yearlyData available');
+        }
+
+        // 3. Kostenentwicklung Chart
+        if (chartData && chartData.length > 0) {
+            console.log('Creating cost chart...');
+            const costCanvas = document.getElementById('costChart');
+            if (costCanvas) {
+                const costCtx = costCanvas.getContext('2d');
+                new Chart(costCtx, {
+                    type: 'bar',
+                    data: {
+                        labels: chartData.map(item => item.month_label || 'N/A'),
+                        datasets: [{
+                            label: 'Kosten (€)',
+                            data: chartData.map(item => parseFloat(item.cost) || 0),
+                            backgroundColor: colors.successLight,
+                            borderColor: colors.success,
+                            borderWidth: 2,
+                            borderRadius: 4,
+                            borderSkipped: false
+                        }]
+                    },
+                    options: {
+                        responsive: true,
+                        maintainAspectRatio: false,
+                        plugins: {
+                            legend: { display: false },
+                            tooltip: {
+                                backgroundColor: 'rgba(0, 0, 0, 0.8)',
+                                titleColor: '#ffffff',
+                                bodyColor: '#ffffff',
+                                borderColor: colors.success,
+                                borderWidth: 1,
+                                cornerRadius: 8,
+                                callbacks: {
+                                    label: function(context) {
+                                        return `Kosten: ${context.parsed.y.toFixed(2)} €`;
+                                    }
+                                }
+                            }
+                        },
+                        scales: {
+                            y: {
+                                beginAtZero: true,
+                                grid: { color: 'rgba(0, 0, 0, 0.1)' },
+                                ticks: {
+                                    callback: function(value) {
+                                        return value + ' €';
+                                    }
+                                }
+                            },
+                            x: {
+                                grid: { display: false }
+                            }
+                        }
+                    }
+                });
+                console.log('✅ Cost chart created');
+            } else {
+                console.log('❌ costChart canvas not found');
+            }
+        }
         
-        new Chart(yearCtx, {
-            type: 'doughnut',
-            data: {
-                labels: yearlyData.map(item => item.year.toString()),
-                datasets: [{
-                    data: yearlyData.map(item => parseFloat(item.total_consumption) || 0),
-                    backgroundColor: chartColors.slice(0, yearlyData.length),
-                    borderWidth: 2,
-                    borderColor: '#ffffff'
-                }]
-            },
-            options: {
-                responsive: true,
-                maintainAspectRatio: false,
-                plugins: {
-                    legend: {
-                        position: 'bottom',
-                        labels: {
-                            padding: 20,
-                            usePointStyle: true
-                        }
-                    },
-                    tooltip: {
-                        backgroundColor: 'rgba(0, 0, 0, 0.8)',
-                        titleColor: '#ffffff',
-                        bodyColor: '#ffffff',
-                        cornerRadius: 8,
-                        callbacks: {
-                            label: function(context) {
-                                const value = context.parsed;
-                                const total = context.dataset.data.reduce((a, b) => a + b, 0);
-                                const percentage = ((value / total) * 100).toFixed(1);
-                                return `${context.label}: ${value.toFixed(1)} kWh (${percentage}%)`;
-                            }
-                        }
-                    }
-                }
-            }
-        });
-    }
-
-    // 3. Kostenentwicklung Chart
-    if (chartData.length > 0) {
-        const costCtx = document.getElementById('costChart').getContext('2d');
-        new Chart(costCtx, {
-            type: 'bar',
-            data: {
-                labels: chartData.map(item => item.month_label),
-                datasets: [{
-                    label: 'Kosten (€)',
-                    data: chartData.map(item => parseFloat(item.cost) || 0),
-                    backgroundColor: colors.successLight,
-                    borderColor: colors.success,
-                    borderWidth: 2,
-                    borderRadius: 4,
-                    borderSkipped: false
-                }]
-            },
-            options: {
-                responsive: true,
-                maintainAspectRatio: false,
-                plugins: {
-                    legend: {
-                        display: false
-                    },
-                    tooltip: {
-                        backgroundColor: 'rgba(0, 0, 0, 0.8)',
-                        titleColor: '#ffffff',
-                        bodyColor: '#ffffff',
-                        borderColor: colors.success,
-                        borderWidth: 1,
-                        cornerRadius: 8,
-                        callbacks: {
-                            label: function(context) {
-                                return `Kosten: ${context.parsed.y.toFixed(2)} €`;
-                            }
-                        }
-                    }
-                },
-                scales: {
-                    y: {
-                        beginAtZero: true,
-                        grid: {
-                            color: 'rgba(0, 0, 0, 0.1)'
+        // 4. Smart-Geräte Balkendiagramme
+        if (tasmotaData && Object.keys(tasmotaData).length > 0) {
+            console.log('Creating tasmota charts...');
+            Object.entries(tasmotaData).forEach(([deviceId, deviceInfo]) => {
+                const canvasId = `tasmotaChart_${deviceId}`;
+                const canvas = document.getElementById(canvasId);
+                
+                console.log(`Processing device ${deviceId}, canvas found:`, !!canvas);
+                
+                if (canvas && deviceInfo.data && deviceInfo.data.length > 0) {
+                    const ctx = canvas.getContext('2d');
+                    
+                    // Farben für bessere Unterscheidung zwischen Geräten
+                    const deviceColors = [
+                        { bg: 'rgba(16, 185, 129, 0.8)', border: 'rgb(16, 185, 129)' },   // Grün
+                        { bg: 'rgba(59, 130, 246, 0.8)', border: 'rgb(59, 130, 246)' },   // Blau
+                        { bg: 'rgba(245, 158, 11, 0.8)', border: 'rgb(245, 158, 11)' },   // Orange
+                        { bg: 'rgba(239, 68, 68, 0.8)', border: 'rgb(239, 68, 68)' },     // Rot
+                        { bg: 'rgba(139, 92, 246, 0.8)', border: 'rgb(139, 92, 246)' }    // Lila
+                    ];
+                    
+                    const colorIndex = parseInt(deviceId) % deviceColors.length;
+                    const color = deviceColors[colorIndex];
+                    
+                    new Chart(ctx, {
+                        type: 'bar',
+                        data: {
+                            labels: deviceInfo.data.map(item => item.month_label || 'N/A'),
+                            datasets: [{
+                                label: `${deviceInfo.device.name} (kWh)`,
+                                data: deviceInfo.data.map(item => parseFloat(item.total_kwh) || 0),
+                                backgroundColor: color.bg,
+                                borderColor: color.border,
+                                borderWidth: 2,
+                                borderRadius: 4,
+                                borderSkipped: false
+                            }]
                         },
-                        ticks: {
-                            callback: function(value) {
-                                return value + ' €';
+                        options: {
+                            responsive: true,
+                            maintainAspectRatio: false,
+                            plugins: {
+                                legend: { display: false },
+                                tooltip: {
+                                    backgroundColor: 'rgba(0, 0, 0, 0.8)',
+                                    titleColor: '#ffffff',
+                                    bodyColor: '#ffffff',
+                                    borderColor: color.border,
+                                    borderWidth: 1,
+                                    cornerRadius: 8,
+                                    callbacks: {
+                                        title: function(tooltipItems) {
+                                            return tooltipItems[0].label;
+                                        },
+                                        label: function(context) {
+                                            const value = context.parsed.y;
+                                            return `Verbrauch: ${value.toFixed(2)} kWh`;
+                                        },
+                                        afterLabel: function(context) {
+                                            const estimatedCost = context.parsed.y * 0.30;
+                                            return `Geschätzte Kosten: ${estimatedCost.toFixed(2)} €`;
+                                        }
+                                    }
+                                }
+                            },
+                            scales: {
+                                y: {
+                                    beginAtZero: true,
+                                    grid: { color: 'rgba(0, 0, 0, 0.1)' },
+                                    ticks: {
+                                        callback: function(value) {
+                                            return value.toFixed(1) + ' kWh';
+                                        },
+                                        font: { size: 11 }
+                                    }
+                                },
+                                x: {
+                                    grid: { display: false },
+                                    ticks: {
+                                        maxRotation: 45,
+                                        minRotation: 0,
+                                        font: { size: 10 }
+                                    }
+                                }
+                            },
+                            animation: {
+                                duration: 1000,
+                                easing: 'easeInOutQuart'
                             }
                         }
-                    },
-                    x: {
-                        grid: {
-                            display: false
-                        }
-                    }
+                    });
+                    console.log(`✅ Tasmota chart created for device ${deviceId}`);
+                } else {
+                    console.log(`⚠️ No data or canvas for device ${deviceId}`);
                 }
-            }
-        });
+            });
+        } else {
+            console.log('⚠️ No tasmotaData available');
+        }
+        
+    } catch (error) {
+        console.error('❌ Chart creation error:', error);
+        alert('Fehler beim Erstellen der Charts: ' + error.message);
     }
+    
+    console.log('✅ All charts initialization completed');
 });
 
 // Utility Functions
 function refreshCharts() {
-    // Seite neu laden für aktuelle Daten
     window.location.reload();
 }
 
 function exportCharts() {
-    // Einfacher Chart-Export (kann erweitert werden)
     alert('Export-Funktion wird in einer zukünftigen Version implementiert.');
 }
 
 // Print-optimierte Styles
 window.addEventListener('beforeprint', function() {
-    // Charts für Druck optimieren
-    Chart.helpers.each(Chart.instances, function(chart) {
-        chart.resize();
-    });
+    if (typeof Chart !== 'undefined' && Chart.helpers) {
+        Chart.helpers.each(Chart.instances, function(chart) {
+            chart.resize();
+        });
+    }
 });
 </script>

@@ -1,0 +1,30 @@
+# Sicherheit für Scripts-Ordner
+# Verhindert direkten Web-Zugriff auf Cron-Scripts
+
+# Alle HTTP-Zugriffe verbieten
+<Files "*">
+    Order Deny,Allow
+    Deny from all
+</Files>
+
+# Nur CLI-Zugriff erlauben
+<FilesMatch "\.(php)$">
+    Order Deny,Allow
+    Deny from all
+</FilesMatch>
+
+# Alternative: 404 für alle Dateien
+# ErrorDocument 403 /404.php
+
+# Zusätzliche Sicherheit
+Options -Indexes
+Options -ExecCGI
+
+# Server-Info verstecken
+ServerSignature Off
+
+# Log-Dateien schützen (falls im scripts Ordner)
+<FilesMatch "\.(log|txt)$">
+    Order Deny,Allow
+    Deny from all
+</FilesMatch>

@@ -1,7 +1,8 @@
 <?php
-// dashboard.php - Dashboard ohne Uhrzeit-Anzeige
+// dashboard.php - Dashboard mit Benachrichtigungsintegration
 require_once 'config/database.php';
 require_once 'config/session.php';
+require_once 'includes/NotificationManager.php';
 
 Auth::requireLogin();
 $pageTitle = 'Dashboard - Stromtracker';
@@ -86,6 +87,16 @@ try {
     error_log("Dashboard Fehler: " . $e->getMessage());
 }
 
+// Benachrichtigungen prüfen
+$notificationCheck = null;
+$notificationSettings = null;
+try {
+    $notificationCheck = NotificationManager::needsReadingReminder($userId);
+    $notificationSettings = NotificationManager::getUserSettings($userId);
+} catch (Exception $e) {
+    error_log("Notification check error: " . $e->getMessage());
+}
+
 // Chart-Daten für die letzten 6 Monate
 $chartData = [];
 try {
@@ -168,6 +179,39 @@ include 'includes/navbar.php';
         </div>
     </div>
 
+    <!-- Benachrichtigungen/Erinnerungen -->
+    <?php if ($notificationCheck && $notificationCheck['needed']): ?>
+    <div class="row mb-4">
+        <div class="col-12">
+            <div class="alert alert-warning alert-dismissible fade show" role="alert">
+                <div class="row align-items-center">
+                    <div class="col-md-1 text-center">
+                        <i class="bi bi-bell-fill fs-2"></i>
+                    </div>
+                    <div class="col-md-8">
+                        <h5 class="alert-heading mb-1">
+                            <i class="bi bi-speedometer2"></i> Zählerstand-Erinnerung
+                        </h5>
+                        <p class="mb-1"><?= htmlspecialchars($notificationCheck['message']) ?></p>
+                        <?php if (isset($notificationCheck['suggested_date'])): ?>
+                        <small class="text-muted">
+                            <i class="bi bi-calendar-check"></i> 
+                            Vorgeschlagen: <?= date('d.m.Y', strtotime($notificationCheck['suggested_date'])) ?>
+                        </small>
+                        <?php endif; ?>
+                    </div>
+                    <div class="col-md-3 text-end">
+                        <a href="zaehlerstand.php" class="btn btn-warning">
+                            <i class="bi bi-plus-circle me-2"></i>Jetzt erfassen
+                        </a>
+                    </div>
+                </div>
+                <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
+            </div>
+        </div>
+    </div>
+    <?php endif; ?>
+
     <!-- Stats Cards Grid -->
     <div class="row mb-4">
         
@@ -240,6 +284,69 @@ include 'includes/navbar.php';
                 </div>
                 <h3><?= $stats['total_devices'] ?></h3>
                 <p>Registrierte Geräte</p>
+            </div>
+        </div>
+    </div>
+
+    <!-- Quick Actions & Notifications Status -->
+    <div class="row mb-4">
+        <!-- Quick Actions -->
+        <div class="col-md-8 mb-3">
+            <div class="card glass p-3">
+                <div class="row align-items-center">
+                    <div class="col-md-3">
+                        <h6 class="mb-1">
+                            <i class="bi bi-lightning text-energy"></i> Quick Actions
+                        </h6>
+                        <small class="text-muted">Häufige Aktionen</small>
+                    </div>
+                    <div class="col-md-9">
+                        <div class="d-flex flex-wrap gap-2">
+                            <a href="zaehlerstand.php" class="btn btn-sm btn-energy">
+                                <i class="bi bi-plus-circle me-1"></i>Zählerstand
+                            </a>
+                            <a href="geraete.php" class="btn btn-sm btn-outline-primary">
+                                <i class="bi bi-cpu me-1"></i>Gerät hinzufügen
+                            </a>
+                            <a href="tarife.php" class="btn btn-sm btn-outline-success">
+                                <i class="bi bi-tag me-1"></i>Tarif verwalten
+                            </a>
+                            <a href="auswertung.php" class="btn btn-sm btn-outline-info">
+                                <i class="bi bi-graph-up me-1"></i>Auswertung
+                            </a>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+        
+        <!-- Benachrichtigungsstatus -->
+        <div class="col-md-4 mb-3">
+            <div class="card glass p-3">
+                <div class="row align-items-center">
+                    <div class="col-3 text-center">
+                        <?php if ($notificationSettings && $notificationSettings['reading_reminder_enabled']): ?>
+                            <i class="bi bi-bell-fill text-success fs-3"></i>
+                        <?php else: ?>
+                            <i class="bi bi-bell-slash text-muted fs-3"></i>
+                        <?php endif; ?>
+                    </div>
+                    <div class="col-9">
+                        <h6 class="mb-1">Erinnerungen</h6>
+                        <?php if ($notificationSettings && $notificationSettings['reading_reminder_enabled']): ?>
+                            <small class="text-success">
+                                ✓ Aktiv (<?= $notificationSettings['reading_reminder_days'] ?> Tage vorher)
+                            </small>
+                        <?php else: ?>
+                            <small class="text-muted">Deaktiviert</small>
+                        <?php endif; ?>
+                        <div class="mt-1">
+                            <a href="profil.php#notifications-tab" class="btn btn-xs btn-outline-secondary">
+                                <i class="bi bi-gear-fill me-1"></i>Einstellungen
+                            </a>
+                        </div>
+                    </div>
+                </div>
             </div>
         </div>
     </div>
@@ -516,6 +623,15 @@ document.addEventListener('DOMContentLoaded', function() {
         }, index * 100);
     });
     
+    // Benachrichtigungsalarm automatisch nach 10 Sekunden ausblenden (optional)
+    const reminderAlert = document.querySelector('.alert-warning');
+    if (reminderAlert) {
+        setTimeout(() => {
+            reminderAlert.style.transition = 'opacity 0.5s ease';
+            reminderAlert.style.opacity = '0.8';
+        }, 10000);
+    }
+    
     // Debug-Info
     console.log('Dashboard Stats:', {
         readings: <?= $stats['total_readings'] ?>,
@@ -523,7 +639,11 @@ document.addEventListener('DOMContentLoaded', function() {
         yearTotal: <?= $stats['year_consumption'] ?>,
         devices: <?= $stats['total_devices'] ?>,
         chartDataPoints: <?= count($chartData) ?>,
-        avgConsumption: <?= $stats['avg_consumption'] ?>
+        avgConsumption: <?= $stats['avg_consumption'] ?>,
+        notifications: {
+            enabled: <?= ($notificationSettings && $notificationSettings['reading_reminder_enabled']) ? 'true' : 'false' ?>,
+            reminderNeeded: <?= ($notificationCheck && $notificationCheck['needed']) ? 'true' : 'false' ?>
+        }
     });
 });
 </script>

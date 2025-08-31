@@ -95,50 +95,33 @@ $tasmotaDevices = Database::fetchAll(
     [$userId]
 ) ?: [];
 
-// Monatliche Verbrauchsdaten für jedes Smart-Gerät - DEBUG VERSION
+// Monatliche Verbrauchsdaten für jedes Smart-Gerät
 $tasmotaMonthlyData = [];
 foreach ($tasmotaDevices as $device) {
-    // DEBUG: Schauen wir uns die rohen Daten an
-    $debugData = Database::fetchAll(
-        "SELECT DATE(timestamp) as day, MIN(energy_today) as min_energy, MAX(energy_today) as max_energy, COUNT(*) as readings_count
-         FROM tasmota_readings 
-         WHERE device_id = ? AND timestamp >= DATE_SUB(CURDATE(), INTERVAL 7 DAY)
-         AND energy_today IS NOT NULL AND energy_today > 0
-         GROUP BY DATE(timestamp)
-         ORDER BY day DESC LIMIT 5",
-        [$device['id']]
-    );
-    
-    error_log("DEBUG Gerät {$device['name']} (ID: {$device['id']}): " . json_encode($debugData));
-    
-    // Versuche verschiedene Ansätze für monatliche Daten
+    // Einfache Abfrage: Letzter energy_today Wert pro Tag
     $monthlyData = Database::fetchAll(
         "SELECT 
             DATE_FORMAT(day_date, '%Y-%m') as month,
             DATE_FORMAT(day_date, '%m/%Y') as month_label,
             YEAR(day_date) as year,
             MONTH(day_date) as month_num,
-            ROUND(AVG(daily_kwh), 2) as total_kwh  -- Durchschnitt statt Summe zum Test
+            SUM(daily_kwh) as total_kwh
          FROM (
              SELECT 
                  DATE(timestamp) as day_date,
                  MAX(energy_today) as daily_kwh
              FROM tasmota_readings
              WHERE device_id = ? 
-             AND timestamp >= DATE_SUB(CURDATE(), INTERVAL 12 MONTH)
-             AND energy_today IS NOT NULL AND energy_today > 0 AND energy_today < 100
+             AND timestamp >= DATE_SUB(CURDATE(), INTERVAL 6 MONTH)
+             AND energy_today IS NOT NULL AND energy_today > 0 AND energy_today <= 50
              GROUP BY DATE(timestamp)
-             HAVING MAX(energy_today) > 0
          ) daily_summary
-         WHERE daily_kwh > 0
          GROUP BY DATE_FORMAT(day_date, '%Y-%m')
-         ORDER BY year DESC, month_num DESC
-         LIMIT 12",
+         HAVING SUM(daily_kwh) > 0
+         ORDER BY year ASC, month_num ASC
+         LIMIT 6",
         [$device['id']]
     ) ?: [];
-    
-    // Debug-Ausgabe für monatliche Werte
-    error_log("Monthly data für {$device['name']}: " . json_encode($monthlyData));
     
     if (!empty($monthlyData)) {
         $tasmotaMonthlyData[$device['id']] = [
@@ -537,7 +520,9 @@ include 'includes/navbar.php';
                                         </div>
                                         
                                         <!-- Chart -->
-                                        <canvas id="tasmotaChart_<?= $deviceId ?>" style="height: 200px;"></canvas>
+                                        <div class="chart-container" style="position: relative; height: 200px; width: 100%; overflow: hidden;">
+                                        <canvas id="tasmotaChart_<?= $deviceId ?>"></canvas>
+                                        </div>
                                     </div>
                                 </div>
                             </div>
@@ -619,18 +604,6 @@ const chartData = <?= json_encode($chartData) ?> || [];
 const yearlyData = <?= json_encode($yearlyComparison) ?> || [];
 const tasmotaData = <?= json_encode($tasmotaMonthlyData) ?> || {};
 
-console.log('=== DEBUGGING INFO ===');
-console.log('Chart.js verfügbar:', typeof Chart !== 'undefined');
-console.log('chartData Länge:', chartData.length);
-console.log('yearlyData Länge:', yearlyData.length); 
-console.log('tasmotaData Keys:', Object.keys(tasmotaData));
-
-// Prüfe ob Chart.js geladen ist
-if (typeof Chart === 'undefined') {
-    console.error('Chart.js ist nicht geladen!');
-    alert('Chart.js Library konnte nicht geladen werden. Bitte Seite neu laden.');
-}
-
 // Chart-Konfiguration mit Energy-Theme
 if (typeof Chart !== 'undefined') {
     Chart.defaults.font.family = "'Inter', sans-serif";
@@ -651,18 +624,13 @@ const colors = {
 };
 
 document.addEventListener('DOMContentLoaded', function() {
-    console.log('DOM loaded, initializing charts...');
-    
-    // Prüfe nochmal Chart.js
+    // Prüfe Chart.js Verfügbarkeit
     if (typeof Chart === 'undefined') {
-        console.error('Chart.js ist immer noch nicht verfügbar nach DOM-Ready');
+        console.error('Chart.js ist nicht verfügbar');
         return;
     }
-    
-    try {
         // 1. Verbrauchsverlauf Chart
         if (chartData && chartData.length > 0) {
-            console.log('Creating consumption chart...');
             const consumptionCanvas = document.getElementById('consumptionChart');
             if (consumptionCanvas) {
                 const consumptionCtx = consumptionCanvas.getContext('2d');
@@ -687,6 +655,15 @@ document.addEventListener('DOMContentLoaded', function() {
                     options: {
                         responsive: true,
                         maintainAspectRatio: false,
+                        devicePixelRatio: 1,
+                        layout: {
+                            padding: {
+                                top: 10,
+                                right: 10,
+                                bottom: 10,
+                                left: 10
+                            }
+                        },
                         plugins: {
                             legend: { display: false },
                             tooltip: {
@@ -719,17 +696,11 @@ document.addEventListener('DOMContentLoaded', function() {
                         }
                     }
                 });
-                console.log('✅ Consumption chart created');
-            } else {
-                console.log('❌ consumptionChart canvas not found');
             }
-        } else {
-            console.log('⚠️ No chartData available for consumption chart');
         }
 
         // 2. Jahresvergleich Chart (Doughnut)
         if (yearlyData && yearlyData.length > 0) {
-            console.log('Creating year comparison chart...');
             const yearCanvas = document.getElementById('yearComparisonChart');
             if (yearCanvas) {
                 const yearCtx = yearCanvas.getContext('2d');
@@ -771,17 +742,11 @@ document.addEventListener('DOMContentLoaded', function() {
                         }
                     }
                 });
-                console.log('✅ Year comparison chart created');
-            } else {
-                console.log('❌ yearComparisonChart canvas not found');
             }
-        } else {
-            console.log('⚠️ No yearlyData available');
         }
 
         // 3. Kostenentwicklung Chart
         if (chartData && chartData.length > 0) {
-            console.log('Creating cost chart...');
             const costCanvas = document.getElementById('costChart');
             if (costCanvas) {
                 const costCtx = costCanvas.getContext('2d');
@@ -834,20 +799,14 @@ document.addEventListener('DOMContentLoaded', function() {
                         }
                     }
                 });
-                console.log('✅ Cost chart created');
-            } else {
-                console.log('❌ costChart canvas not found');
             }
         }
         
         // 4. Smart-Geräte Balkendiagramme
         if (tasmotaData && Object.keys(tasmotaData).length > 0) {
-            console.log('Creating tasmota charts...');
             Object.entries(tasmotaData).forEach(([deviceId, deviceInfo]) => {
                 const canvasId = `tasmotaChart_${deviceId}`;
                 const canvas = document.getElementById(canvasId);
-                
-                console.log(`Processing device ${deviceId}, canvas found:`, !!canvas);
                 
                 if (canvas && deviceInfo.data && deviceInfo.data.length > 0) {
                     const ctx = canvas.getContext('2d');
@@ -870,15 +829,13 @@ document.addEventListener('DOMContentLoaded', function() {
                             labels: deviceInfo.data.map(item => item.month_label || 'N/A'),
                             datasets: [{
                                 label: `${deviceInfo.device.name} (kWh)`,
-                                // DEBUG: Limitiere Werte und logge sie
+                                // Begrenze nur extrem unrealistische Werte
                                 data: deviceInfo.data.map(item => {
                                     let value = parseFloat(item.total_kwh) || 0;
-                                    // Begrenze unrealistisch hohe Werte
-                                    if (value > 1000) {
-                                        console.warn(`Extrem hoher Wert für ${deviceInfo.device.name}: ${value} kWh - begrenzt auf 50`);
-                                        value = Math.min(value / 20, 50); // Teile durch 20 oder max 50
+                                    // Nur bei wirklich extremen Werten eingreifen (>500 kWh/Monat)
+                                    if (value > 500) {
+                                        value = 50; // Fallback-Wert
                                     }
-                                    console.log(`${deviceInfo.device.name} - ${item.month_label}: ${value} kWh`);
                                     return value;
                                 }),
                                 backgroundColor: color.bg,
@@ -941,21 +898,9 @@ document.addEventListener('DOMContentLoaded', function() {
                             }
                         }
                     });
-                    console.log(`✅ Tasmota chart created for device ${deviceId}`);
-                } else {
-                    console.log(`⚠️ No data or canvas for device ${deviceId}`);
-                }
-            });
-        } else {
-            console.log('⚠️ No tasmotaData available');
-        }
-        
-    } catch (error) {
-        console.error('❌ Chart creation error:', error);
-        alert('Fehler beim Erstellen der Charts: ' + error.message);
-    }
-    
-    console.log('✅ All charts initialization completed');
+                    }
+                    });
+                    }
 });
 
 // Utility Functions

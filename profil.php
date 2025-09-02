@@ -512,10 +512,29 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                         Flash::error('Bitte geben Sie eine Chat-ID ein.');
                     } elseif (!TelegramManager::isEnabled()) {
                         Flash::error('Telegram ist nicht aktiviert. Bitte kontaktieren Sie den Administrator.');
+                    } elseif (!TelegramManager::isUserBotReady($userId)) {
+                        Flash::error('Bitte konfigurieren Sie zuerst Ihren Bot-Token.');
                     } else {
-                        $success = NotificationManager::initiateTelegramVerification($userId, $chatId);
-                        if ($success) {
-                            Flash::success('Verifizierungscode wurde an Telegram gesendet! Geben Sie den Code unten ein.');
+                        // Chat-ID mit Benutzer-Bot validieren
+                        if (!TelegramManager::validateUserChatId($userId, $chatId)) {
+                            Flash::error('Chat-ID ist nicht erreichbar. Starten Sie Ihren Bot in Telegram.');
+                        } else {
+                            // Verifizierungscode generieren und senden
+                            $verificationCode = TelegramManager::generateVerificationCode();
+                            $success = TelegramManager::sendUserVerificationCode($userId, $chatId, $verificationCode);
+                            
+                            if ($success) {
+                                // Code in Session/Cache speichern
+                                NotificationManager::saveVerificationCode($userId, $verificationCode);
+                                // Chat-ID speichern (noch nicht verifiziert)
+                                TelegramManager::saveUserTelegramSettings($userId, [
+                                    'telegram_chat_id' => $chatId,
+                                    'telegram_verified' => false
+                                ]);
+                                Flash::success('Verifizierungscode wurde an Telegram gesendet! Geben Sie den Code unten ein.');
+                            } else {
+                                Flash::error('Verifizierungscode konnte nicht gesendet werden.');
+                            }
                         }
                     }
                     
@@ -532,11 +551,16 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     if (empty($verificationCode)) {
                         Flash::error('Bitte geben Sie den Verifizierungscode ein.');
                     } else {
-                        $success = NotificationManager::verifyTelegramCode($userId, $verificationCode);
-                        if ($success) {
-                            Flash::success('Telegram erfolgreich verifiziert! Benachrichtigungen sind jetzt aktiv.');
-                        } else {
+                        $storedCode = NotificationManager::getVerificationCode($userId);
+                        
+                        if (!$storedCode || $verificationCode !== $storedCode) {
                             Flash::error('Ungültiger Verifizierungscode. Versuchen Sie es erneut.');
+                        } else {
+                            // Code als verwendet markieren
+                            NotificationManager::clearVerificationCode($userId);
+                            // Chat-ID als verifiziert markieren
+                            TelegramManager::markUserChatIdVerified($userId);
+                            Flash::success('Telegram erfolgreich verifiziert! Benachrichtigungen sind jetzt aktiv.');
                         }
                     }
                     
@@ -545,32 +569,65 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 }
                 break;
                 
+            case 'telegram_save_bot':
+                // Bot-Token speichern
+                try {
+                    $botToken = trim($_POST['telegram_bot_token'] ?? '');
+                    
+                    if (empty($botToken)) {
+                        Flash::error('Bitte geben Sie ein Bot-Token ein.');
+                        break;
+                    }
+                    
+                    if ($botToken !== 'demo' && !TelegramManager::validateBotToken($botToken)) {
+                        Flash::error('Ungültiges Bot-Token Format. Erwartetes Format: 123456789:ABCdefGHijKLmnopQRstuvwxyz');
+                        break;
+                    }
+                    
+                    // API-Validierung (außer Demo-Token)
+                    if ($botToken !== 'demo' && !TelegramManager::validateBotTokenAPI($botToken)) {
+                        Flash::error('Bot-Token ist ungültig oder Bot nicht erreichbar. Prüfen Sie das Token.');
+                        break;
+                    }
+                    
+                    $success = TelegramManager::saveUserBot($userId, $botToken);
+                    
+                    if ($success) {
+                        Flash::success('Bot-Token erfolgreich gespeichert! Chat-ID muss neu verifiziert werden.');
+                    } else {
+                        Flash::error('Unbekannter Fehler beim Speichern des Bot-Tokens.');
+                    }
+                    
+                } catch (Exception $e) {
+                    error_log("Telegram bot save error for user {$userId}: " . $e->getMessage());
+                    Flash::error('Bot-Token Fehler: ' . $e->getMessage());
+                }
+                break;
+                
+            case 'telegram_remove_bot':
+                // Bot-Token entfernen
+                try {
+                    $success = TelegramManager::removeUserBot($userId);
+                    if ($success) {
+                        Flash::success('Bot-Token erfolgreich entfernt.');
+                    } else {
+                        Flash::error('Fehler beim Entfernen des Bot-Tokens.');
+                    }
+                    
+                } catch (Exception $e) {
+                    Flash::error('Fehler: ' . $e->getMessage());
+                }
+                break;
+                
             case 'telegram_test':
                 // Test-Telegram senden
                 try {
-                    $settings = NotificationManager::getUserSettings($userId);
+                    $success = TelegramManager::sendUserTestMessage($userId);
                     
-                    if (!$settings['telegram_enabled'] || !$settings['telegram_verified']) {
-                        Flash::error('Telegram ist nicht aktiviert oder verifiziert.');
-                    } elseif (!TelegramManager::isEnabled()) {
-                        Flash::error('Telegram-System ist nicht verfügbar.');
+                    if ($success) {
+                        Flash::success('Test-Nachricht erfolgreich an Telegram gesendet!');
                     } else {
-                        $testData = [
-                            'message' => 'Dies ist eine Test-Nachricht von Ihrem Stromtracker!',
-                            'reason' => 'test'
-                        ];
-                        
-                        $success = TelegramManager::sendReadingReminder(
-                            $settings['telegram_chat_id'], 
-                            $user['name'] ?? 'Stromtracker-Nutzer',
-                            $testData
-                        );
-                        
-                        if ($success) {
-                            Flash::success('Test-Nachricht erfolgreich an Telegram gesendet!');
-                        } else {
-                            Flash::error('Test-Nachricht konnte nicht gesendet werden.');
-                        }
+                        Flash::error('Test-Nachricht konnte nicht gesendet werden.');
                     }
                     
                 } catch (Exception $e) {
@@ -600,9 +657,19 @@ $notificationStats = NotificationManager::getNotificationStats($userId);
 // Telegram-System verfügbar?
 $telegramEnabled = TelegramManager::isEnabled();
 $telegramBotInfo = null;
+$telegramUserSettings = [];
 if ($telegramEnabled) {
     try {
         $telegramBotInfo = TelegramManager::getBotInfo();
+        $telegramUserSettings = TelegramManager::getUserTelegramSettings($userId);
+        
+        // Bot-Info für Benutzer laden falls Bot-Token vorhanden
+        if (!empty($telegramUserSettings['telegram_bot_token'])) {
+            $userBotInfo = TelegramManager::getUserBotInfo($userId);
+            if ($userBotInfo) {
+                $telegramBotInfo = $userBotInfo; // User-Bot hat Priorität
+            }
+        }
     } catch (Exception $e) {
         error_log("Telegram bot info error: " . $e->getMessage());
     }
@@ -878,6 +945,84 @@ include 'includes/navbar.php';
                                 <hr>
                                 
                                 <h6>📱 Telegram Benachrichtigungen</h6>
+                                
+                                <!-- Bot-Token Konfiguration -->
+                                <div class="card bg-light mb-3">
+                                    <div class="card-body">
+                                        <h6><i class="bi bi-robot"></i> Ihr persönlicher Bot</h6>
+                                        
+                                        <?php if (!empty($telegramUserSettings['telegram_bot_token'])): ?>
+                                        <!-- Bot bereits konfiguriert -->
+                                        <div class="alert alert-success mb-2">
+                                            <div class="row align-items-center">
+                                                <div class="col-md-8">
+                                                    <strong>✅ Bot konfiguriert:</strong> @<?= htmlspecialchars($telegramBotInfo['username'] ?? 'unbekannt') ?><br>
+                                                    <small class="text-muted">
+                                                        Token: <?= substr($telegramUserSettings['telegram_bot_token'], 0, 15) ?>...
+                                                        <?php if ($telegramUserSettings['telegram_bot_token'] === 'demo'): ?>
+                                                        <span class="badge bg-warning">DEMO</span>
+                                                        <?php endif; ?>
+                                                    </small>
+                                                </div>
+                                                <div class="col-md-4 text-end">
+                                                    <button type="button" class="btn btn-sm btn-outline-primary" 
+                                                            data-bs-toggle="collapse" data-bs-target="#changeBotForm">
+                                                        <i class="bi bi-pencil"></i> Ändern
+                                                    </button>
+                                                    <form method="POST" class="d-inline">
+                                                        <input type="hidden" name="csrf_token" value="<?= $csrfToken ?>">
+                                                        <input type="hidden" name="action" value="telegram_remove_bot">
+                                                        <button type="submit" class="btn btn-sm btn-outline-danger"
+                                                                onclick="return confirm('Bot-Token wirklich entfernen?')">
+                                                            <i class="bi bi-trash"></i>
+                                                        </button>
+                                                    </form>
+                                                </div>
+                                            </div>
+                                        </div>
+                                        
+                                        <div class="collapse" id="changeBotForm">
+                                        <?php else: ?>
+                                        <!-- Kein Bot konfiguriert -->
+                                        <div class="alert alert-info mb-2">
+                                            <strong><i class="bi bi-info-circle"></i> Kein Bot konfiguriert</strong><br>
+                                            Erstellen Sie einen eigenen Telegram-Bot für persönliche Benachrichtigungen.
+                                        </div>
+                                        <?php endif; ?>
+                                        
+                                            <form method="POST">
+                                                <input type="hidden" name="csrf_token" value="<?= $csrfToken ?>">
+                                                <input type="hidden" name="action" value="telegram_save_bot">
+                                                
+                                                <div class="row">
+                                                    <div class="col-md-8 mb-3">
+                                                        <label for="telegram_bot_token" class="form-label">
+                                                            <i class="bi bi-key"></i> Bot-Token
+                                                        </label>
+                                                        <input type="text" class="form-control font-monospace" 
+                                                               id="telegram_bot_token" name="telegram_bot_token"
+                                                               placeholder="123456789:ABCdefGHijKLmnopQRstuvwxyz oder 'demo'"
+                                                               value="<?= htmlspecialchars($telegramUserSettings['telegram_bot_token'] ?? '') ?>">
+                                                        <small class="text-muted">
+                                                            🤖 Erstellen Sie einen Bot bei @BotFather oder verwenden Sie 'demo' zum Testen
+                                                        </small>
+                                                    </div>
+                                                    <div class="col-md-4 mb-3 d-flex align-items-end">
+                                                        <button type="submit" class="btn btn-primary w-100">
+                                                            <i class="bi bi-check-circle"></i> Bot Speichern
+                                                        </button>
+                                                    </div>
+                                                </div>
+                                            </form>
+                                            
+                                        <?php if (!empty($telegramUserSettings['telegram_bot_token'])): ?>
+                                        </div>
+                                        <?php endif; ?>
+                                    </div>
+                                </div>
+                                
+                                <?php if (!empty($telegramUserSettings['telegram_bot_token'])): ?>
+                                <!-- Chat-ID und Aktivierung nur wenn Bot konfiguriert -->
                                 <div class="row">
                                     <div class="col-md-6 mb-3">
                                         <div class="form-check">
@@ -903,13 +1048,14 @@ include 'includes/navbar.php';
                                             </button>
                                         </div>
                                         <small class="text-muted">
-                                            Starten Sie @<?= $telegramBotInfo['username'] ?? 'stromtracker_bot' ?> in Telegram
+                                            Starten Sie @<?= $telegramBotInfo['username'] ?? 'ihren_bot' ?> in Telegram
                                         </small>
                                     </div>
                                 </div>
+                                <?php endif; ?>
                                 
-                                <!-- Telegram Verifizierung -->
-                                <?php if ($notificationSettings['telegram_chat_id'] && !$notificationSettings['telegram_verified']): ?>
+                                <!-- Telegram Verifizierung (nur wenn Bot konfiguriert) -->
+                                <?php if (!empty($telegramUserSettings['telegram_bot_token']) && $notificationSettings['telegram_chat_id'] && !$notificationSettings['telegram_verified']): ?>
                                 <div class="alert alert-warning">
                                     <h6><i class="bi bi-shield-exclamation"></i> Verifizierung erforderlich</h6>
                                     <p>Ihre Chat-ID muss verifiziert werden, bevor Telegram-Benachrichtigungen aktiviert werden können.</p>
@@ -935,15 +1081,18 @@ include 'includes/navbar.php';
                                 </div>
                                 <?php endif; ?>
                                 
-                                <!-- Telegram Test -->
-                                <?php if ($notificationSettings['telegram_enabled'] && $notificationSettings['telegram_verified']): ?>
+                                <!-- Telegram Test (nur wenn Bot konfiguriert und verifiziert) -->
+                                <?php if (!empty($telegramUserSettings['telegram_bot_token']) && $notificationSettings['telegram_enabled'] && $notificationSettings['telegram_verified']): ?>
                                 <div class="alert alert-success">
                                     <h6><i class="bi bi-check-circle"></i> Telegram ist bereit!</h6>
                                     <p class="mb-2">Ihre Telegram-Benachrichtigungen sind aktiv und verifiziert.</p>
-                                    <button type="submit" name="action" value="telegram_test" 
-                                            class="btn btn-outline-primary btn-sm">
-                                        <i class="bi bi-chat-dots"></i> Test-Nachricht senden
-                                    </button>
+                                    <form method="POST" class="d-inline">
+                                        <input type="hidden" name="csrf_token" value="<?= $csrfToken ?>">
+                                        <input type="hidden" name="action" value="telegram_test">
+                                        <button type="submit" class="btn btn-outline-primary btn-sm">
+                                            <i class="bi bi-chat-dots"></i> Test-Nachricht senden
+                                        </button>
+                                    </form>
                                 </div>
                                 <?php endif; ?>
                                 

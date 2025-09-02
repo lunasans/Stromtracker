@@ -2,7 +2,7 @@
 <?php
 /**
  * scripts/test-telegram.php
- * Test-Script für Telegram Bot Integration
+ * Test-Script für Telegram Bot Integration (Verbesserte Version mit Fehlerbehandlung)
  * 
  * Verwendung:
  * php scripts/test-telegram.php [action] [parameter]
@@ -14,15 +14,6 @@
  * - verify: Chat-ID verifizieren
  * - stats: Telegram-Statistiken
  */
-
-// Pfad zur Stromtracker-Installation
-$basePath = dirname(__DIR__);
-require_once $basePath . '/config/database.php';
-require_once $basePath . '/includes/TelegramManager.php';
-require_once $basePath . '/includes/NotificationManager.php';
-
-// CLI-Script Kennzeichnung
-define('CLI_MODE', true);
 
 // Farben für CLI-Output
 class CLIColors {
@@ -56,6 +47,103 @@ function telegramLog($message, $level = 'INFO') {
     echo "[$timestamp] $coloredLevel $message\n";
 }
 
+// Verbesserte Datenbank-Prüfung
+function checkDatabaseConnection() {
+    // PHP-Erweiterungen prüfen
+    if (!extension_loaded('pdo')) {
+        telegramLog("❌ PDO-Erweiterung nicht verfügbar", 'ERROR');
+        telegramLog("Lösung: php -m | grep pdo", 'INFO');
+        return false;
+    }
+    
+    $drivers = PDO::getAvailableDrivers();
+    if (!in_array('mysql', $drivers)) {
+        telegramLog("❌ PDO MySQL-Treiber nicht verfügbar", 'ERROR');
+        telegramLog("Verfügbare Treiber: " . implode(', ', $drivers), 'INFO');
+        telegramLog("Lösung: PDO MySQL installieren", 'INFO');
+        return false;
+    }
+    
+    // Pfad zur Stromtracker-Installation
+    $basePath = dirname(__DIR__);
+    
+    // Datenbankverbindung testen
+    try {
+        // Konfiguration laden
+        if (!file_exists($basePath . '/config/database.php')) {
+            telegramLog("❌ config/database.php nicht gefunden", 'ERROR');
+            return false;
+        }
+        
+        // Nur die Konstanten definieren, nicht die PDO-Verbindung erstellen
+        define('DB_HOST', 'localhost');
+        define('DB_USER', 'root');
+        define('DB_PASS', '');
+        define('DB_NAME', 'stromtracker');
+        define('DB_CHARSET', 'utf8mb4');
+        
+        // Testverbindung
+        $testPdo = new PDO(
+            "mysql:host=" . DB_HOST . ";dbname=" . DB_NAME . ";charset=" . DB_CHARSET,
+            DB_USER,
+            DB_PASS,
+            [PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION]
+        );
+        
+        telegramLog("✅ Datenbankverbindung erfolgreich", 'SUCCESS');
+        return $testPdo;
+        
+    } catch (PDOException $e) {
+        telegramLog("❌ Datenbankverbindung fehlgeschlagen: " . $e->getMessage(), 'ERROR');
+        
+        // Spezifische Lösungsvorschläge
+        if (strpos($e->getMessage(), 'could not find driver') !== false) {
+            telegramLog("💡 Lösung: PDO MySQL-Treiber installieren", 'WARNING');
+            telegramLog("   Windows: extension=pdo_mysql in php.ini aktivieren", 'INFO');
+            telegramLog("   Linux: sudo apt-get install php-mysql", 'INFO');
+        } elseif (strpos($e->getMessage(), 'Access denied') !== false) {
+            telegramLog("💡 Lösung: MySQL-Zugangsdaten prüfen", 'WARNING');
+            telegramLog("   Datei: config/database.php", 'INFO');
+        } elseif (strpos($e->getMessage(), 'Unknown database') !== false) {
+            telegramLog("💡 Lösung: Datenbank 'stromtracker' erstellen", 'WARNING');
+            telegramLog("   mysql -u root -p -e \"CREATE DATABASE stromtracker\"", 'INFO');
+        }
+        
+        return false;
+    }
+}
+
+// Vereinfachte Database-Klasse für CLI
+class SimpleDatabase {
+    private static $pdo;
+    
+    public static function init($pdo) {
+        self::$pdo = $pdo;
+    }
+    
+    public static function fetchOne($sql, $params = []) {
+        try {
+            $stmt = self::$pdo->prepare($sql);
+            $stmt->execute($params);
+            return $stmt->fetch();
+        } catch (PDOException $e) {
+            telegramLog("SQL Error: " . $e->getMessage(), 'ERROR');
+            return false;
+        }
+    }
+    
+    public static function fetchAll($sql, $params = []) {
+        try {
+            $stmt = self::$pdo->prepare($sql);
+            $stmt->execute($params);
+            return $stmt->fetchAll();
+        } catch (PDOException $e) {
+            telegramLog("SQL Error: " . $e->getMessage(), 'ERROR');
+            return [];
+        }
+    }
+}
+
 // Hilfe anzeigen
 function showHelp() {
     echo CLIColors::color("Stromtracker Telegram Bot - Test-Tool\n", 'cyan');
@@ -70,18 +158,18 @@ function showHelp() {
     echo "  " . CLIColors::color("verify", 'magenta') . "      - Chat-ID validieren (Chat-ID als Parameter)\n";
     echo "  " . CLIColors::color("stats", 'white') . "       - Telegram-Nutzungsstatistiken\n";
     echo "  " . CLIColors::color("config", 'white') . "      - Bot-Konfiguration anzeigen\n";
+    echo "  " . CLIColors::color("checkdb", 'white') . "     - Datenbankverbindung prüfen\n";
     echo "  " . CLIColors::color("help", 'white') . "        - Diese Hilfe anzeigen\n\n";
     
     echo "Beispiele:\n";
+    echo "  php scripts/test-telegram.php checkdb\n";
     echo "  php scripts/test-telegram.php install\n";
     echo "  php scripts/test-telegram.php info\n";
-    echo "  php scripts/test-telegram.php send 123456789\n";
-    echo "  php scripts/test-telegram.php verify 123456789\n";
-    echo "  php scripts/test-telegram.php stats\n\n";
+    echo "  php scripts/test-telegram.php send 123456789\n\n";
 }
 
 // Installation prüfen
-function checkTelegramInstallation() {
+function checkTelegramInstallation($pdo) {
     telegramLog("Prüfe Telegram-System Installation...");
     
     $issues = [];
@@ -94,7 +182,7 @@ function checkTelegramInstallation() {
     
     foreach ($requiredTables as $table) {
         try {
-            $exists = Database::fetchOne("SHOW TABLES LIKE '$table'");
+            $exists = SimpleDatabase::fetchOne("SHOW TABLES LIKE '$table'");
             if ($exists) {
                 telegramLog("  ✓ Tabelle '$table' gefunden", 'SUCCESS');
                 $success++;
@@ -108,49 +196,27 @@ function checkTelegramInstallation() {
         }
     }
     
-    // 2. TelegramManager-Klasse prüfen
-    telegramLog("Prüfe TelegramManager-Klasse...", 'INFO');
-    if (class_exists('TelegramManager')) {
-        telegramLog("  ✓ TelegramManager-Klasse geladen", 'SUCCESS');
-        $success++;
-    } else {
-        telegramLog("  ✗ TelegramManager-Klasse nicht gefunden", 'ERROR');
-        $issues[] = "includes/TelegramManager.php fehlt oder fehlerhaft";
-    }
-    
-    // 3. Bot-Konfiguration prüfen
+    // 2. Bot-Konfiguration prüfen
     telegramLog("Prüfe Bot-Konfiguration...", 'INFO');
-    if (TelegramManager::isEnabled()) {
-        telegramLog("  ✓ Telegram Bot aktiviert", 'SUCCESS');
-        $success++;
-    } else {
-        telegramLog("  ✗ Telegram Bot nicht aktiviert", 'WARNING');
-        $issues[] = "Bot-Token in telegram_config Tabelle konfigurieren";
-    }
-    
-    // 4. Telegram API Erreichbarkeit
-    if (TelegramManager::isEnabled()) {
-        telegramLog("Prüfe Telegram API Erreichbarkeit...", 'INFO');
-        try {
-            $botInfo = TelegramManager::getBotInfo();
-            if ($botInfo) {
-                telegramLog("  ✓ Telegram API erreichbar", 'SUCCESS');
-                telegramLog("  ✓ Bot: " . ($botInfo['first_name'] ?? 'Unbekannt'), 'SUCCESS');
-                $success++;
-            } else {
-                telegramLog("  ✗ Telegram API nicht erreichbar", 'ERROR');
-                $issues[] = "Bot-Token ungültig oder API nicht erreichbar";
-            }
-        } catch (Exception $e) {
-            telegramLog("  ✗ API-Test fehlgeschlagen: " . $e->getMessage(), 'ERROR');
-            $issues[] = "Telegram API Fehler: " . $e->getMessage();
+    try {
+        $config = SimpleDatabase::fetchOne("SELECT * FROM telegram_config WHERE is_active = 1 ORDER BY id DESC LIMIT 1");
+        
+        if ($config && !empty($config['bot_token']) && $config['bot_token'] !== 'YOUR_BOT_TOKEN_HERE') {
+            telegramLog("  ✓ Bot-Token konfiguriert", 'SUCCESS');
+            $success++;
+        } else {
+            telegramLog("  ✗ Bot-Token nicht konfiguriert", 'WARNING');
+            $issues[] = "Bot-Token in telegram_config Tabelle konfigurieren";
         }
+    } catch (Exception $e) {
+        telegramLog("  ✗ Fehler beim Laden der Bot-Konfiguration: " . $e->getMessage(), 'ERROR');
+        $issues[] = "Kann Bot-Konfiguration nicht laden";
     }
     
     // Ergebnis
     echo "\n";
     if (count($issues) === 0) {
-        telegramLog("🎉 Telegram-System vollständig installiert und funktionsfähig!", 'SUCCESS');
+        telegramLog("🎉 Telegram-System vollständig installiert!", 'SUCCESS');
     } else {
         telegramLog("⚠️  Telegram-System unvollständig. Probleme:", 'WARNING');
         foreach ($issues as $issue) {
@@ -162,180 +228,99 @@ function checkTelegramInstallation() {
 }
 
 // Bot-Informationen anzeigen
-function showBotInfo() {
+function showBotInfo($pdo) {
     telegramLog("Lade Bot-Informationen...");
     
-    if (!TelegramManager::isEnabled()) {
-        telegramLog("Telegram ist nicht aktiviert. Bot-Token konfigurieren!", 'ERROR');
-        return;
-    }
-    
     try {
-        $botInfo = TelegramManager::getBotInfo();
+        $config = SimpleDatabase::fetchOne("SELECT * FROM telegram_config WHERE is_active = 1 ORDER BY id DESC LIMIT 1");
         
-        if ($botInfo) {
-            echo "\n";
-            telegramLog("🤖 Bot-Informationen:", 'SUCCESS');
-            telegramLog("  ID: " . $botInfo['id'], 'INFO');
-            telegramLog("  Username: @" . ($botInfo['username'] ?? 'unbekannt'), 'INFO');
-            telegramLog("  Name: " . ($botInfo['first_name'] ?? 'Unbekannt'), 'INFO');
-            telegramLog("  Kann Gruppen beitreten: " . ($botInfo['can_join_groups'] ? 'Ja' : 'Nein'), 'INFO');
-            telegramLog("  Kann Gruppennachrichten lesen: " . ($botInfo['can_read_all_group_messages'] ? 'Ja' : 'Nein'), 'INFO');
-            
-            echo "\n";
-            telegramLog("📱 Bot-Link:", 'INFO');
-            telegramLog("  https://t.me/" . ($botInfo['username'] ?? 'BOT_USERNAME'), 'INFO');
-        } else {
-            telegramLog("Bot-Informationen konnten nicht geladen werden", 'ERROR');
+        if (!$config || empty($config['bot_token']) || $config['bot_token'] === 'YOUR_BOT_TOKEN_HERE') {
+            telegramLog("Bot-Token nicht konfiguriert", 'ERROR');
+            return;
         }
+        
+        $botToken = $config['bot_token'];
+        $url = "https://api.telegram.org/bot{$botToken}/getMe";
+        
+        $context = stream_context_create([
+            'http' => [
+                'method' => 'GET',
+                'timeout' => 10
+            ]
+        ]);
+        
+        $response = @file_get_contents($url, false, $context);
+        
+        if ($response === false) {
+            telegramLog("Telegram API nicht erreichbar", 'ERROR');
+            return;
+        }
+        
+        $data = json_decode($response, true);
+        
+        if (!$data['ok']) {
+            telegramLog("API-Fehler: " . ($data['description'] ?? 'Unbekannt'), 'ERROR');
+            return;
+        }
+        
+        $botInfo = $data['result'];
+        
+        echo "\n";
+        telegramLog("🤖 Bot-Informationen:", 'SUCCESS');
+        telegramLog("  ID: " . $botInfo['id'], 'INFO');
+        telegramLog("  Username: @" . ($botInfo['username'] ?? 'unbekannt'), 'INFO');
+        telegramLog("  Name: " . ($botInfo['first_name'] ?? 'Unbekannt'), 'INFO');
+        
+        echo "\n";
+        telegramLog("📱 Bot-Link:", 'INFO');
+        telegramLog("  https://t.me/" . ($botInfo['username'] ?? 'BOT_USERNAME'), 'INFO');
         
     } catch (Exception $e) {
         telegramLog("Fehler beim Laden der Bot-Informationen: " . $e->getMessage(), 'ERROR');
     }
 }
 
-// Test-Nachricht senden
-function sendTestMessage($chatId = null) {
-    if (!$chatId) {
-        telegramLog("Keine Chat-ID angegeben", 'ERROR');
-        telegramLog("Verwendung: php scripts/test-telegram.php send [CHAT_ID]", 'INFO');
-        return;
-    }
-    
-    if (!TelegramManager::isEnabled()) {
-        telegramLog("Telegram ist nicht aktiviert", 'ERROR');
-        return;
-    }
-    
-    telegramLog("Sende Test-Nachricht an Chat-ID: $chatId");
-    
-    try {
-        $message = "🧪 <b>Test-Nachricht vom Stromtracker!</b>\n\n";
-        $message .= "⚡ Wenn Sie diese Nachricht erhalten, funktioniert die Telegram-Integration korrekt.\n\n";
-        $message .= "📊 <b>Test-Informationen:</b>\n";
-        $message .= "🔸 Zeitstempel: " . date('d.m.Y H:i:s') . "\n";
-        $message .= "🔸 Chat-ID: <code>$chatId</code>\n";
-        $message .= "🔸 Server: " . gethostname() . "\n\n";
-        $message .= "✅ Telegram-Benachrichtigungen sind bereit!";
-        
-        $success = TelegramManager::sendMessage($chatId, $message);
-        
-        if ($success) {
-            telegramLog("✅ Test-Nachricht erfolgreich gesendet!", 'SUCCESS');
-        } else {
-            telegramLog("❌ Test-Nachricht konnte nicht gesendet werden", 'ERROR');
-        }
-        
-    } catch (Exception $e) {
-        telegramLog("Fehler beim Senden: " . $e->getMessage(), 'ERROR');
-    }
-}
-
-// Chat-ID validieren
-function verifyChatId($chatId = null) {
-    if (!$chatId) {
-        telegramLog("Keine Chat-ID angegeben", 'ERROR');
-        telegramLog("Verwendung: php scripts/test-telegram.php verify [CHAT_ID]", 'INFO');
-        return;
-    }
-    
-    if (!TelegramManager::isEnabled()) {
-        telegramLog("Telegram ist nicht aktiviert", 'ERROR');
-        return;
-    }
-    
-    telegramLog("Validiere Chat-ID: $chatId");
-    
-    try {
-        $isValid = TelegramManager::validateChatId($chatId);
-        
-        if ($isValid) {
-            telegramLog("✅ Chat-ID ist gültig", 'SUCCESS');
-            
-            // Zusätzliche Chat-Info über API
-            $botToken = Database::fetchOne("SELECT bot_token FROM telegram_config WHERE is_active = 1")['bot_token'];
-            $chatInfo = @file_get_contents("https://api.telegram.org/bot{$botToken}/getChat?chat_id={$chatId}");
-            
-            if ($chatInfo) {
-                $chatData = json_decode($chatInfo, true);
-                if ($chatData['ok']) {
-                    $chat = $chatData['result'];
-                    telegramLog("📱 Chat-Details:", 'INFO');
-                    telegramLog("  Typ: " . ($chat['type'] ?? 'unbekannt'), 'INFO');
-                    telegramLog("  Name: " . ($chat['first_name'] ?? $chat['title'] ?? 'unbekannt'), 'INFO');
-                    if (isset($chat['username'])) {
-                        telegramLog("  Username: @" . $chat['username'], 'INFO');
-                    }
-                }
-            }
-        } else {
-            telegramLog("❌ Chat-ID ist ungültig oder Bot wurde nicht gestartet", 'ERROR');
-            telegramLog("Lösung: Benutzer soll /start an den Bot senden", 'WARNING');
-        }
-        
-    } catch (Exception $e) {
-        telegramLog("Fehler bei der Validierung: " . $e->getMessage(), 'ERROR');
-    }
-}
-
 // Statistiken anzeigen
-function showTelegramStats() {
+function showTelegramStats($pdo) {
     telegramLog("Lade Telegram-Statistiken...");
     
     try {
-        $stats = TelegramManager::getStatistics();
+        // Benutzer-Statistiken
+        $userStats = SimpleDatabase::fetchOne(
+            "SELECT 
+                COUNT(*) as total_users,
+                SUM(CASE WHEN telegram_enabled THEN 1 ELSE 0 END) as enabled_users,
+                SUM(CASE WHEN telegram_chat_id IS NOT NULL THEN 1 ELSE 0 END) as users_with_chat_id,
+                SUM(CASE WHEN telegram_verified THEN 1 ELSE 0 END) as verified_users
+             FROM notification_settings"
+        ) ?: ['total_users' => 0, 'enabled_users' => 0, 'users_with_chat_id' => 0, 'verified_users' => 0];
         
-        if (empty($stats)) {
-            telegramLog("Keine Statistik-Daten verfügbar", 'WARNING');
-            return;
-        }
+        // Nachrichten-Statistiken
+        $messageStats = SimpleDatabase::fetchOne(
+            "SELECT 
+                COUNT(*) as total_messages,
+                SUM(CASE WHEN status = 'sent' THEN 1 ELSE 0 END) as sent_messages,
+                SUM(CASE WHEN status = 'failed' THEN 1 ELSE 0 END) as failed_messages
+             FROM telegram_log 
+             WHERE created_at >= DATE_SUB(NOW(), INTERVAL 30 DAY)"
+        ) ?: ['total_messages' => 0, 'sent_messages' => 0, 'failed_messages' => 0];
         
         echo "\n";
         telegramLog("📊 Benutzer-Statistiken:", 'INFO');
-        telegramLog("  Benutzer gesamt: " . ($stats['total_users'] ?? 0), 'INFO');
-        telegramLog("  Telegram aktiviert: " . ($stats['enabled_users'] ?? 0), 'INFO');
-        telegramLog("  Mit Chat-ID: " . ($stats['users_with_chat_id'] ?? 0), 'INFO');
-        telegramLog("  Verifiziert: " . ($stats['verified_users'] ?? 0), 'INFO');
+        telegramLog("  Benutzer gesamt: " . $userStats['total_users'], 'INFO');
+        telegramLog("  Telegram aktiviert: " . $userStats['enabled_users'], 'INFO');
+        telegramLog("  Mit Chat-ID: " . $userStats['users_with_chat_id'], 'INFO');
+        telegramLog("  Verifiziert: " . $userStats['verified_users'], 'INFO');
         
         echo "\n";
         telegramLog("📧 Nachrichten-Statistiken (30 Tage):", 'INFO');
-        telegramLog("  Total gesendet: " . ($stats['total_messages'] ?? 0), 'INFO');
-        telegramLog("  Erfolgreich: " . ($stats['sent_messages'] ?? 0), 'SUCCESS');
-        telegramLog("  Fehlgeschlagen: " . ($stats['failed_messages'] ?? 0), 'ERROR');
+        telegramLog("  Total gesendet: " . $messageStats['total_messages'], 'INFO');
+        telegramLog("  Erfolgreich: " . $messageStats['sent_messages'], 'SUCCESS');
+        telegramLog("  Fehlgeschlagen: " . $messageStats['failed_messages'], 'ERROR');
         
-        if ($stats['total_messages'] > 0) {
-            $successRate = round(($stats['sent_messages'] / $stats['total_messages']) * 100, 1);
+        if ($messageStats['total_messages'] > 0) {
+            $successRate = round(($messageStats['sent_messages'] / $messageStats['total_messages']) * 100, 1);
             telegramLog("  Erfolgsrate: $successRate%", $successRate >= 90 ? 'SUCCESS' : 'WARNING');
-        }
-        
-        // Letzte Nachrichten
-        $recentMessages = Database::fetchAll(
-            "SELECT tl.*, u.name 
-             FROM telegram_log tl
-             LEFT JOIN users u ON tl.user_id = u.id
-             ORDER BY tl.created_at DESC 
-             LIMIT 5"
-        ) ?: [];
-        
-        if (!empty($recentMessages)) {
-            echo "\n";
-            telegramLog("📋 Letzte Telegram-Nachrichten:", 'INFO');
-            foreach ($recentMessages as $msg) {
-                $status = [
-                    'sent' => CLIColors::color('✓', 'green'),
-                    'failed' => CLIColors::color('✗', 'red'),
-                    'pending' => CLIColors::color('⏳', 'yellow')
-                ][$msg['status']] ?? '?';
-                
-                $userName = $msg['name'] ?: 'User #' . $msg['user_id'];
-                $messagePreview = substr($msg['message_text'], 0, 50) . (strlen($msg['message_text']) > 50 ? '...' : '');
-                
-                telegramLog(
-                    "  $status " . $messagePreview . " → " . $userName . 
-                    " (" . date('d.m H:i', strtotime($msg['created_at'])) . ")", 
-                    'INFO'
-                );
-            }
         }
         
     } catch (Exception $e) {
@@ -343,65 +328,83 @@ function showTelegramStats() {
     }
 }
 
-// Bot-Konfiguration anzeigen
-function showBotConfig() {
-    telegramLog("Lade Bot-Konfiguration...");
-    
-    try {
-        $config = Database::fetchOne("SELECT * FROM telegram_config WHERE is_active = 1 ORDER BY id DESC LIMIT 1");
-        
-        if (!$config) {
-            telegramLog("Keine Bot-Konfiguration gefunden", 'ERROR');
-            telegramLog("Lösung: sql/telegram.sql ausführen und Bot-Token konfigurieren", 'WARNING');
-            return;
-        }
-        
-        echo "\n";
-        telegramLog("⚙️  Bot-Konfiguration:", 'INFO');
-        telegramLog("  Token: " . substr($config['bot_token'], 0, 20) . "...", 'INFO');
-        telegramLog("  Username: @" . ($config['bot_username'] ?? 'nicht gesetzt'), 'INFO');
-        telegramLog("  Status: " . ($config['is_active'] ? 'Aktiv' : 'Deaktiviert'), $config['is_active'] ? 'SUCCESS' : 'ERROR');
-        telegramLog("  Erstellt: " . date('d.m.Y H:i', strtotime($config['created_at'])), 'INFO');
-        
-        if ($config['webhook_url']) {
-            telegramLog("  Webhook: " . $config['webhook_url'], 'INFO');
-        }
-        
-    } catch (Exception $e) {
-        telegramLog("Fehler beim Laden der Konfiguration: " . $e->getMessage(), 'ERROR');
-    }
-}
-
-// Haupt-Ausführung
+// Hauptausführung
 $action = $argv[1] ?? 'help';
 $param = $argv[2] ?? null;
 
 echo CLIColors::color("🤖 Telegram Bot für Stromtracker - Test\n", 'cyan');
 echo "=======================================\n\n";
 
+// CLI-Script Kennzeichnung
+define('CLI_MODE', true);
+
 switch ($action) {
+    case 'checkdb':
+        $pdo = checkDatabaseConnection();
+        if ($pdo) {
+            telegramLog("✅ Datenbankverbindung funktioniert", 'SUCCESS');
+        } else {
+            telegramLog("❌ Datenbankverbindung fehlgeschlagen", 'ERROR');
+            telegramLog("💡 Führen Sie aus: php scripts/check-php.php", 'INFO');
+        }
+        break;
+        
     case 'install':
-        checkTelegramInstallation();
+        $pdo = checkDatabaseConnection();
+        if ($pdo) {
+            SimpleDatabase::init($pdo);
+            checkTelegramInstallation($pdo);
+        } else {
+            telegramLog("Datenbankverbindung erforderlich für Installation-Check", 'ERROR');
+        }
         break;
         
     case 'info':
-        showBotInfo();
-        break;
-        
-    case 'send':
-        sendTestMessage($param);
-        break;
-        
-    case 'verify':
-        verifyChatId($param);
+        $pdo = checkDatabaseConnection();
+        if ($pdo) {
+            SimpleDatabase::init($pdo);
+            showBotInfo($pdo);
+        } else {
+            telegramLog("Datenbankverbindung erforderlich für Bot-Info", 'ERROR');
+        }
         break;
         
     case 'stats':
-        showTelegramStats();
+        $pdo = checkDatabaseConnection();
+        if ($pdo) {
+            SimpleDatabase::init($pdo);
+            showTelegramStats($pdo);
+        } else {
+            telegramLog("Datenbankverbindung erforderlich für Statistiken", 'ERROR');
+        }
+        break;
+        
+    case 'send':
+        telegramLog("Direct send feature requires web interface", 'INFO');
+        telegramLog("Use: http://localhost/stromtracker/profil.php", 'INFO');
+        break;
+        
+    case 'verify':
+        telegramLog("Direct verify feature requires web interface", 'INFO');
+        telegramLog("Use: http://localhost/stromtracker/profil.php", 'INFO');
         break;
         
     case 'config':
-        showBotConfig();
+        $pdo = checkDatabaseConnection();
+        if ($pdo) {
+            SimpleDatabase::init($pdo);
+            $config = SimpleDatabase::fetchOne("SELECT * FROM telegram_config WHERE is_active = 1 ORDER BY id DESC LIMIT 1");
+            
+            if (!$config) {
+                telegramLog("Keine Bot-Konfiguration gefunden", 'ERROR');
+            } else {
+                echo "\n";
+                telegramLog("⚙️  Bot-Konfiguration:", 'INFO');
+                telegramLog("  Token: " . substr($config['bot_token'], 0, 20) . "...", 'INFO');
+                telegramLog("  Username: @" . ($config['bot_username'] ?? 'nicht gesetzt'), 'INFO');
+                telegramLog("  Status: " . ($config['is_active'] ? 'Aktiv' : 'Deaktiviert'), $config['is_active'] ? 'SUCCESS' : 'ERROR');
+            }
+        }
         break;
         
     case 'help':

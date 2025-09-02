@@ -247,6 +247,6 @@ document.querySelectorAll('footer a[style*="color: var(--gray-400)"]').forEach(l
     });
 });
 </script>
-<?php include 'includes/tasmota-modal.php'; ?>
+
 </body>
 </html>

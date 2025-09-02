@@ -369,7 +369,7 @@ class NotificationManager {
     /**
      * Verifizierungscode speichern (vereinfacht)
      */
-    private static function saveVerificationCode($userId, $code) {
+    public static function saveVerificationCode($userId, $code) {
         // In echtem System: Redis/Memcached mit Ablaufzeit
         // Hier: Einfache Datenbankspeisung mit execute
         Database::execute(
@@ -383,7 +383,7 @@ class NotificationManager {
     /**
      * Verifizierungscode abrufen
      */
-    private static function getVerificationCode($userId) {
+    public static function getVerificationCode($userId) {
         $result = Database::fetchOne(
             "SELECT message_text FROM telegram_log 
              WHERE user_id = ? AND message_type = 'verification' AND status = 'pending' 
@@ -397,7 +397,7 @@ class NotificationManager {
     /**
      * Verifizierungscode löschen
      */
-    private static function clearVerificationCode($userId) {
+    public static function clearVerificationCode($userId) {
         Database::update(
             'telegram_log',
             ['status' => 'used'],

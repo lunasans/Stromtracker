@@ -589,10 +589,46 @@ include 'includes/navbar.php';
                     
                     <div class="mb-3">
                         <label class="form-label">Zählerstand (kWh)</label>
-                        <input type="number" class="form-control" name="meter_value" 
+                        <input type="number" class="form-control" name="meter_value" id="meter_value_input"
                                step="0.01" min="0" required placeholder="z.B. 12345.67">
                         <div class="form-text">Aktueller Wert vom Stromzähler</div>
                     </div>
+                    
+                    <!-- ========== OCR-ERWEITERUNG START ========== -->
+                    <div class="mb-3">
+                        <label class="form-label">
+                            <i class="bi bi-camera"></i> Oder Bild vom Zähler verwenden
+                        </label>
+                        <div class="d-grid gap-2">
+                            <input type="file" id="meterImageInput" accept="image/*" class="form-control" style="display: none;">
+                            <button type="button" class="btn btn-outline-primary" onclick="document.getElementById('meterImageInput').click()">
+                                <i class="bi bi-camera"></i> Zählerbild auswählen
+                            </button>
+                        </div>
+                    </div>
+
+                    <!-- Bild-Vorschau und OCR-Status -->
+                    <div id="imagePreviewSection" class="mb-3" style="display: none;">
+                        <div class="row">
+                            <div class="col-md-6">
+                                <label class="form-label">Bild-Vorschau</label>
+                                <div class="border rounded p-2">
+                                    <img id="imagePreview" src="" alt="Zählerstand-Bild" class="img-fluid" style="max-height: 200px;">
+                                </div>
+                            </div>
+                            <div class="col-md-6">
+                                <label class="form-label">OCR-Status</label>
+                                <div id="ocrStatus" class="alert alert-info">
+                                    <i class="bi bi-hourglass-split"></i> Bereit für Bildanalyse...
+                                </div>
+                                <div id="ocrResult" class="mt-2" style="display: none;">
+                                    <small class="text-muted">Erkannter Text:</small>
+                                    <div id="ocrText" class="border rounded p-2 bg-light small"></div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                    <!-- ========== OCR-ERWEITERUNG ENDE ========== -->
                     
                     <div class="mb-3">
                         <label class="form-label">Notizen <small class="text-muted">(optional)</small></label>
@@ -679,8 +715,229 @@ include 'includes/navbar.php';
 
 <?php include 'includes/footer.php'; ?>
 
+<!-- OCR Library -->
+<script src="https://cdn.jsdelivr.net/npm/tesseract.js@4/dist/tesseract.min.js"></script>
+
 <!-- JavaScript -->
 <script>
+// ========== OCR-FUNKTIONALITÄT START ==========
+// OCR-Funktionalität für Zählerstand-Erkennung
+document.getElementById('meterImageInput').addEventListener('change', function(e) {
+    const file = e.target.files[0];
+    if (!file) return;
+    
+    // Bild-Vorschau anzeigen
+    const reader = new FileReader();
+    reader.onload = function(e) {
+        document.getElementById('imagePreview').src = e.target.result;
+        document.getElementById('imagePreviewSection').style.display = 'block';
+        
+        // OCR starten
+        processImageWithOCR(file);
+    };
+    reader.readAsDataURL(file);
+});
+
+function processImageWithOCR(file) {
+    const statusDiv = document.getElementById('ocrStatus');
+    const resultDiv = document.getElementById('ocrResult');
+    const textDiv = document.getElementById('ocrText');
+    
+    statusDiv.innerHTML = '<i class="bi bi-hourglass-split"></i> Zählerstand wird erkannt...';
+    statusDiv.className = 'alert alert-info';
+    resultDiv.style.display = 'none';
+    
+    // Tesseract OCR mit optimierten Einstellungen für Zahlen
+    Tesseract.recognize(
+        file,
+        'deu+eng', // Deutsch und Englisch
+        {
+            logger: m => {
+                if (m.status === 'recognizing text') {
+                    const progress = Math.round(m.progress * 100);
+                    statusDiv.innerHTML = `<i class="bi bi-gear-fill"></i> Analysiere Bild... ${progress}%`;
+                }
+            },
+            tessedit_char_whitelist: '0123456789.,: kWhstandWert', // Nur relevante Zeichen
+            tessedit_pageseg_mode: Tesseract.PSM.SINGLE_BLOCK
+        }
+    ).then(({ data: { text, confidence } }) => {
+        textDiv.textContent = text;
+        resultDiv.style.display = 'block';
+        
+        // Zählerstand aus Text extrahieren
+        const meterReading = extractMeterReading(text);
+        
+        if (meterReading) {
+            // Erkannten Wert ins Eingabefeld eintragen
+            const meterValueInput = document.getElementById('meter_value_input');
+            if (meterValueInput) {
+                meterValueInput.value = meterReading;
+                meterValueInput.focus();
+            }
+            
+            statusDiv.innerHTML = `<i class="bi bi-check-circle-fill text-success"></i> Zählerstand erkannt: <strong>${meterReading} kWh</strong>`;
+            statusDiv.className = 'alert alert-success';
+        } else {
+            // Zeige Hilfe-Text mit Tipps
+            statusDiv.innerHTML = '<i class="bi bi-exclamation-triangle-fill"></i> Kein Zählerstand erkannt. <br><small>Tipp: Foto frontal aufnehmen, gute Beleuchtung, nur die Zählerziffern im Bild.</small>';
+            statusDiv.className = 'alert alert-warning';
+        }
+        
+        console.log('OCR Confidence:', Math.round(confidence) + '%');
+        
+    }).catch(err => {
+        console.error('OCR Error:', err);
+        statusDiv.innerHTML = '<i class="bi bi-x-circle-fill"></i> Fehler bei der Bilderkennung. Bitte manuell eingeben.';
+        statusDiv.className = 'alert alert-danger';
+    });
+}
+
+function extractMeterReading(text) {
+    console.log('OCR Text:', text);
+    
+    // Text vorbereinigen - Rauschen entfernen aber Zahlen und wichtige Wörter behalten
+    let cleanText = text
+        .replace(/[^\d\s.,kWhKWHSTANDstandwertzählerZÄHLER]/gi, ' ') // Nur relevante Zeichen
+        .replace(/\s+/g, ' ') // Mehrfache Leerzeichen entfernen
+        .toLowerCase();
+    
+    console.log('Bereinigter Text:', cleanText);
+    
+    // Erweiterte Muster für deutsche Zählerstände
+    const patterns = [
+        // Präzise Formate mit Kontext
+        /kwh[\s:]*([\d\s]{1,3}[.,][\d\s]{3}[.,][\d\s]{1,3})/gi, // kWh: 1 2.345,67
+        /stand[\s:]*([\d\s]{1,3}[.,][\d\s]{3}[.,][\d\s]{1,3})/gi, // Stand: 1 2.345,67
+        
+        // Standard-Formate mit Tausender-Trennung
+        /([\d\s]{1,3}[.,][\d\s]{3}[.,][\d\s]{1,3})/g, // 12.345,67 oder 12 345 67
+        /([\d\s]{4,6}[.,][\d\s]{1,3})/g, // 12345,67
+        
+        // Kompakte Formate
+        /(\d{5,6})/g, // 123456 (ohne Kommastellen)
+        
+        // Nach kWh-Markierung suchen
+        /kwh[\s:]*([\d\s.,]{4,10})/gi,
+        /stand[\s:]*([\d\s.,]{4,10})/gi
+    ];
+    
+    const candidates = [];
+    
+    // Alle möglichen Treffer sammeln
+    for (let pattern of patterns) {
+        const matches = [...cleanText.matchAll(pattern)];
+        for (let match of matches) {
+            let rawValue = match[1] || match[0];
+            
+            // Zahl extrahieren und normalisieren
+            let reading = parseNumberFromOCR(rawValue);
+            
+            // Plausibilitätsprüfung für Stromzähler
+            if (reading >= 1000 && reading <= 999999) {
+                candidates.push({
+                    value: reading,
+                    confidence: getReadingConfidence(match[0], text, pattern.source),
+                    raw: rawValue
+                });
+            }
+        }
+    }
+    
+    // Zusätzliche Suche nach isolierten 5-6 stelligen Zahlen
+    const numberMatches = cleanText.match(/\b\d{5,6}\b/g);
+    if (numberMatches) {
+        numberMatches.forEach(numStr => {
+            let reading = parseInt(numStr);
+            if (reading >= 10000 && reading <= 999999) { // Höhere Mindestgrenze für isolierte Zahlen
+                candidates.push({
+                    value: reading,
+                    confidence: 40, // Niedrigere Confidence für isolierte Zahlen
+                    raw: numStr
+                });
+            }
+        });
+    }
+    
+    if (candidates.length === 0) {
+        console.log('Keine Kandidaten gefunden');
+        return null;
+    }
+    
+    // Duplikate entfernen (gleiche Werte)
+    const uniqueCandidates = candidates.filter((candidate, index, self) => 
+        index === self.findIndex(c => c.value === candidate.value)
+    );
+    
+    // Nach Confidence sortieren
+    uniqueCandidates.sort((a, b) => b.confidence - a.confidence);
+    
+    console.log('Zählerstand-Kandidaten:', uniqueCandidates);
+    
+    return uniqueCandidates[0].value;
+}
+
+// Hilfsfunktion zum Parsen von OCR-Zahlen
+function parseNumberFromOCR(rawText) {
+    // Leerzeichen entfernen
+    let cleaned = rawText.replace(/\s/g, '');
+    
+    // Deutsche Zahlenformate handhaben
+    // 12.345,67 -> 12345.67
+    if (cleaned.includes('.') && cleaned.includes(',')) {
+        // Punkt als Tausendertrennzeichen, Komma als Dezimaltrennzeichen
+        cleaned = cleaned.replace(/\./g, '').replace(',', '.');
+    }
+    // 12345,67 -> 12345.67  
+    else if (cleaned.includes(',') && !cleaned.includes('.')) {
+        cleaned = cleaned.replace(',', '.');
+    }
+    
+    return parseFloat(cleaned) || 0;
+}
+
+function getReadingConfidence(matchText, fullText, patternType) {
+    let confidence = 30; // Basis-Confidence
+    
+    // Bonus für Kontext-Wörter
+    if (/kwh|stand|wert|zähler/i.test(fullText)) {
+        confidence += 25;
+    }
+    
+    // Bonus für typische Zählerstand-Formate
+    if (/\d{4,5}[.,]\d{1,2}/.test(matchText)) {
+        confidence += 20;
+    }
+    
+    // Bonus für 5-6 stellige Zahlen (typisch für Stromzähler)
+    if (/\d{5,6}/.test(matchText)) {
+        confidence += 15;
+    }
+    
+    // Pattern-spezifische Bonusse
+    if (patternType && patternType.includes('kwh')) {
+        confidence += 20; // Starker Bonus für kWh-Kontext
+    }
+    if (patternType && patternType.includes('stand')) {
+        confidence += 20; // Starker Bonus für Stand-Kontext
+    }
+    
+    // Malus für sehr kurze oder sehr lange Zahlen
+    const numericPart = matchText.replace(/[^\d]/g, '');
+    if (numericPart.length < 4 || numericPart.length > 8) {
+        confidence -= 15;
+    }
+    
+    return Math.max(confidence, 10); // Mindest-Confidence
+}
+
+// Bild zurücksetzen wenn Modal geschlossen wird
+document.getElementById('addReadingModal').addEventListener('hidden.bs.modal', function() {
+    document.getElementById('meterImageInput').value = '';
+    document.getElementById('imagePreviewSection').style.display = 'none';
+});
+// ========== OCR-FUNKTIONALITÄT ENDE ==========
+
 // Reading bearbeiten
 function editReading(reading) {
     document.getElementById('edit_reading_id').value = reading.id;
@@ -705,7 +962,7 @@ document.addEventListener('DOMContentLoaded', function() {
     // Add Modal
     const addModal = document.getElementById('addReadingModal');
     addModal.addEventListener('shown.bs.modal', function() {
-        document.querySelector('#addReadingModal input[name="meter_value"]').focus();
+        document.getElementById('meter_value_input').focus();
     });
     
     // Edit Modal

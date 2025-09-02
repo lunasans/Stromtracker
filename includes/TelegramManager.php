@@ -5,6 +5,18 @@
 class TelegramManager {
     
     /**
+     * Konvertiert boolean-Werte zu Integern für MySQL-Kompatibilität
+     */
+    private static function prepareDatabaseData($data) {
+        foreach ($data as $key => $value) {
+            if (is_bool($value)) {
+                $data[$key] = $value ? 1 : 0;
+            }
+        }
+        return $data;
+    }
+    
+    /**
      * Prüfen ob Telegram allgemein verfügbar ist (Alias für isSystemEnabled)
      */
     public static function isEnabled() {
@@ -63,20 +75,25 @@ class TelegramManager {
     }
     
     /**
-     * Bot-Token für Benutzer speichern
+     * Bot-Token für Benutzer speichern (mit Debug-Logging)
      */
     public static function saveUserBot($userId, $botToken, $botUsername = null) {
         try {
+            error_log("[TelegramManager] saveUserBot started - User: $userId, Token: " . substr($botToken, 0, 10) . "...");
+            
             // Bot-Token validieren
             if (!self::validateBotToken($botToken)) {
+                error_log("[TelegramManager] Token validation failed");
                 throw new Exception('Ungültiger Bot-Token');
             }
+            error_log("[TelegramManager] Token validation passed");
             
             // Bot-Username ermitteln falls nicht übergeben
             if (!$botUsername && $botToken !== 'demo') {
                 $botInfo = self::getBotInfoFromToken($botToken);
                 if ($botInfo) {
                     $botUsername = $botInfo['username'] ?? null;
+                    error_log("[TelegramManager] Bot username retrieved: $botUsername");
                 }
             }
             
@@ -86,10 +103,12 @@ class TelegramManager {
                 [$userId]
             );
             
+            error_log("[TelegramManager] Existing record: " . ($existing ? "ID " . $existing['id'] : "none"));
+            
             $data = [
                 'telegram_bot_token' => $botToken,
-                'telegram_verified' => false, // Muss neu verifiziert werden
-                'telegram_chat_id' => null    // Muss neu gesetzt werden
+                'telegram_verified' => 0,    // Explizit als Integer statt false
+                'telegram_chat_id' => ''     // Leerer String statt null
             ];
             
             // Bot-Username nur setzen wenn vorhanden
@@ -99,32 +118,55 @@ class TelegramManager {
             
             if ($existing) {
                 // Update bestehender Eintrag
+                error_log("[TelegramManager] Performing UPDATE...");
                 $result = Database::update(
                     'notification_settings',
-                    $data,
+                    self::prepareDatabaseData($data),  // Boolean-Konvertierung
                     'user_id = ?',
                     [$userId]
                 );
+                error_log("[TelegramManager] UPDATE result: " . ($result ? 'true' : 'false'));
             } else {
                 // Neuen Eintrag erstellen
+                error_log("[TelegramManager] Performing INSERT...");
                 $data['user_id'] = $userId;
-                // Standardwerte für alle Felder setzen
-                $data['email_notifications'] = true;
-                $data['reading_reminder_enabled'] = true;
-                $data['reading_reminder_days'] = 5;
-                $data['high_usage_alert'] = false;
-                $data['high_usage_threshold'] = 200.00;
-                $data['cost_alert_enabled'] = false;
-                $data['cost_alert_threshold'] = 100.00;
-                $data['telegram_enabled'] = false;
                 
-                $result = Database::insert('notification_settings', $data);
+                // Standardwerte für alle Felder setzen (mit Integer-Konvertierung)
+                $data['email_notifications'] = 1;          // true → 1
+                $data['reading_reminder_enabled'] = 1;     // true → 1
+                $data['reading_reminder_days'] = 5;
+                $data['high_usage_alert'] = 0;             // false → 0
+                $data['high_usage_threshold'] = 200.00;
+                $data['cost_alert_enabled'] = 0;          // false → 0
+                $data['cost_alert_threshold'] = 100.00;
+                $data['telegram_enabled'] = 0;            // false → 0
+                
+                $result = Database::insert('notification_settings', self::prepareDatabaseData($data));
+                error_log("[TelegramManager] INSERT result: " . ($result ? 'true' : 'false'));
+            }
+            
+            // Zusätzliche Verifikation
+            if ($result) {
+                $verification = Database::fetchOne(
+                    "SELECT telegram_bot_token FROM notification_settings WHERE user_id = ?",
+                    [$userId]
+                );
+                
+                if ($verification && $verification['telegram_bot_token'] === $botToken) {
+                    error_log("[TelegramManager] Verification passed - token correctly saved");
+                } else {
+                    error_log("[TelegramManager] Verification FAILED - token not found or incorrect");
+                    throw new Exception('Token wurde nicht korrekt gespeichert');
+                }
+            } else {
+                error_log("[TelegramManager] Database operation returned false");
+                throw new Exception('Datenbankfehler beim Speichern');
             }
             
             return $result;
             
         } catch (Exception $e) {
-            error_log("SaveUserBot error for user {$userId}: " . $e->getMessage());
+            error_log("[TelegramManager] SaveUserBot error for user {$userId}: " . $e->getMessage());
             throw new Exception('Bot-Token konnte nicht gespeichert werden: ' . $e->getMessage());
         }
     }

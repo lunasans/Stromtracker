@@ -134,9 +134,10 @@ try {
     
 } catch (Exception $e) {
     echo "\n❌ FEHLER: " . $e->getMessage() . "\n";
-    echo "\nDebug-Info:\n";
-    echo "- Datenbankverbindung: " . (Database::getConnection() ? "OK" : "FEHLER") . "\n";
-    echo "- User ID: " . (Auth::isLoggedIn() ? Auth::getUserId() : "Nicht eingeloggt") . "\n";
+    echo "\nPrüfen Sie:\n";
+    echo "- Datenbank-Konfiguration in config/database.php\n";
+    echo "- MySQL-Server läuft\n";
+    echo "- Tabelle 'users' existiert (für User-ID check)\n";
 }
 
 echo "</pre>\n";

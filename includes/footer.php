@@ -27,7 +27,7 @@
                 <!-- Version Info -->
                 <div class="d-flex align-items-center gap-2 mb-3">
                     <span class="badge" style="background: var(--energy); color: white; font-weight: 500;">
-                        Version 2.0
+                        Version 2.1
                     </span>
                     <small style="color: var(--gray-500);">
                         Build <?= date('Ymd') ?>

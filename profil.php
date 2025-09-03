@@ -484,10 +484,20 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                         'cost_alert_enabled' => isset($_POST['cost_alert_enabled']),
                         'cost_alert_threshold' => max(10, (float)($_POST['cost_alert_threshold'] ?? 100)),
                         
-                        // Telegram-Einstellungen
+                        // Telegram-Einstellungen (korrigiert)
                         'telegram_enabled' => isset($_POST['telegram_enabled']),
                         'telegram_chat_id' => trim($_POST['telegram_chat_id'] ?? '')
                     ];
+                    
+                    // Debug-Logging hinzufügen
+                    error_log("[Profil] update_notifications - telegram_chat_id: '" . $notificationSettings['telegram_chat_id'] . "'");
+                    
+                    // TABELLEN-EXISTENZ PRÜFEN
+                    $tableExists = Database::fetchOne("SHOW TABLES LIKE 'notification_settings'");
+                    if (!$tableExists) {
+                        Flash::error('❌ KRITISCH: Datenbanktabellen fehlen! Führen Sie sql/telegram-setup.sql aus.');
+                        break;
+                    }
                     
                     $success = NotificationManager::saveUserSettings($userId, $notificationSettings);
                     
@@ -504,68 +514,185 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 break;
                 
             case 'telegram_verify':
-                // Telegram Verifizierung starten
+                // Telegram Verifizierung starten (REPARIERT + DEBUG)
                 try {
+                    error_log("=== TELEGRAM VERIFY START ===");
                     $chatId = trim($_POST['telegram_chat_id'] ?? '');
                     
                     if (empty($chatId)) {
                         Flash::error('Bitte geben Sie eine Chat-ID ein.');
-                    } elseif (!TelegramManager::isEnabled()) {
-                        Flash::error('Telegram ist nicht aktiviert. Bitte kontaktieren Sie den Administrator.');
-                    } elseif (!TelegramManager::isUserBotReady($userId)) {
+                        break;
+                    }
+                    
+                    error_log("[VERIFY] Chat ID: " . $chatId);
+                    
+                    // Chat-ID Format validieren
+                    if (!preg_match('/^-?\d{5,15}$/', $chatId)) {
+                        Flash::error('Ungültige Chat-ID. Nur Zahlen erlaubt (z.B. 123456789).');
+                        break;
+                    }
+                    
+                    if (!TelegramManager::isEnabled()) {
+                        Flash::error('Telegram ist nicht aktiviert.');
+                        break;
+                    }
+                    
+                    // Bot-Token prüfen
+                    $userSettings = Database::fetchOne(
+                        "SELECT telegram_bot_token FROM notification_settings WHERE user_id = ?",
+                        [$userId]
+                    );
+                    
+                    if (!$userSettings || empty($userSettings['telegram_bot_token'])) {
                         Flash::error('Bitte konfigurieren Sie zuerst Ihren Bot-Token.');
+                        break;
+                    }
+                    
+                    // Alte pending Codes löschen
+                    Database::execute(
+                        "UPDATE telegram_log SET status = 'expired' WHERE user_id = ? AND message_type = 'verification' AND status = 'pending'",
+                        [$userId]
+                    );
+                    error_log("[VERIFY] Old pending codes expired");
+                    
+                    // Verifizierungscode generieren
+                    $verificationCode = sprintf('%06d', mt_rand(100000, 999999));
+                    error_log("[VERIFY] Generated code: " . $verificationCode);
+                    
+                    // Code senden
+                    $success = TelegramManager::sendUserVerificationCode($userId, $chatId, $verificationCode);
+                    error_log("[VERIFY] Send result: " . ($success ? 'SUCCESS' : 'FAILED'));
+                    
+                    if ($success) {
+                        // Code in telegram_log speichern
+                        $insertResult = Database::insert('telegram_log', [
+                            'user_id' => $userId,
+                            'chat_id' => $chatId,
+                            'message_type' => 'verification',
+                            'message_text' => $verificationCode,
+                            'status' => 'pending'
+                        ]);
+                        
+                        error_log("[VERIFY] Code insert result: " . ($insertResult ? 'SUCCESS' : 'FAILED'));
+                        
+                        // Verifikation: Code wieder auslesen
+                        $verification = Database::fetchOne(
+                            "SELECT message_text FROM telegram_log WHERE id = ?",
+                            [$insertResult]
+                        );
+                        error_log("[VERIFY] Code verification: '" . ($verification['message_text'] ?? 'NULL') . "'");
+                        
+                        // Chat-ID speichern (unverified)
+                        Database::update(
+                            'notification_settings',
+                            [
+                                'telegram_chat_id' => $chatId,
+                                'telegram_verified' => 0
+                            ],
+                            'user_id = ?',
+                            [$userId]
+                        );
+                        
+                        Flash::success('Verifizierungscode wurde gesendet! Geben Sie den Code ein.');
+                        
                     } else {
-                        // Chat-ID mit Benutzer-Bot validieren
-                        if (!TelegramManager::validateUserChatId($userId, $chatId)) {
-                            Flash::error('Chat-ID ist nicht erreichbar. Starten Sie Ihren Bot in Telegram.');
-                        } else {
-                            // Verifizierungscode generieren und senden
-                            $verificationCode = TelegramManager::generateVerificationCode();
-                            $success = TelegramManager::sendUserVerificationCode($userId, $chatId, $verificationCode);
-                            
-                            if ($success) {
-                                // Code in Session/Cache speichern
-                                NotificationManager::saveVerificationCode($userId, $verificationCode);
-                                // Chat-ID speichern (noch nicht verifiziert)
-                                TelegramManager::saveUserTelegramSettings($userId, [
-                                    'telegram_chat_id' => $chatId,
-                                    'telegram_verified' => false
-                                ]);
-                                Flash::success('Verifizierungscode wurde an Telegram gesendet! Geben Sie den Code unten ein.');
-                            } else {
-                                Flash::error('Verifizierungscode konnte nicht gesendet werden.');
-                            }
-                        }
+                        Flash::error('Code konnte nicht gesendet werden. Prüfen Sie Bot-Token und Chat-ID.');
                     }
                     
                 } catch (Exception $e) {
                     Flash::error('Verifizierung fehlgeschlagen: ' . $e->getMessage());
+                    error_log("[VERIFY] Error: " . $e->getMessage());
                 }
                 break;
                 
             case 'telegram_confirm':
-                // Telegram Verifizierungscode bestätigen
+                // Telegram Verifizierungscode bestätigen (REPARIERT + DEBUG)
                 try {
+                    error_log("=== TELEGRAM CONFIRM START ===");
                     $verificationCode = trim($_POST['verification_code'] ?? '');
                     
                     if (empty($verificationCode)) {
                         Flash::error('Bitte geben Sie den Verifizierungscode ein.');
-                    } else {
-                        $storedCode = NotificationManager::getVerificationCode($userId);
+                        break;
+                    }
+                    
+                    error_log("[CONFIRM] Code eingegeben: '" . $verificationCode . "' (Length: " . strlen($verificationCode) . ")");
+                    
+                    // ALLE pending codes für User anzeigen (Debug)
+                    $allPending = Database::fetchAll(
+                        "SELECT id, message_text, created_at FROM telegram_log 
+                         WHERE user_id = ? AND message_type = 'verification' AND status = 'pending'
+                         ORDER BY created_at DESC",
+                        [$userId]
+                    );
+                    
+                    error_log("[CONFIRM] Found " . count($allPending) . " pending codes:");
+                    foreach ($allPending as $idx => $pending) {
+                        error_log("[CONFIRM] Code #" . ($idx+1) . ": '" . $pending['message_text'] . "' (ID: " . $pending['id'] . ", Created: " . $pending['created_at'] . ")");
+                    }
+                    
+                    // Code aus telegram_log abrufen
+                    $storedCodeRecord = Database::fetchOne(
+                        "SELECT id, message_text, created_at FROM telegram_log 
+                         WHERE user_id = ? AND message_type = 'verification' AND status = 'pending'
+                         ORDER BY created_at DESC LIMIT 1",
+                        [$userId]
+                    );
+                    
+                    $storedCode = $storedCodeRecord ? $storedCodeRecord['message_text'] : null;
+                    error_log("[CONFIRM] Latest stored code: '" . $storedCode . "' (Length: " . strlen($storedCode ?? '') . ")");
+                    
+                    if (!$storedCode) {
+                        Flash::error('Kein gültiger Verifizierungscode gefunden. Senden Sie einen neuen Code.');
+                        break;
+                    }
+                    
+                    // String-Vergleich mit Debug
+                    $codesMatch = ($verificationCode === $storedCode);
+                    error_log("[CONFIRM] String comparison: '" . $verificationCode . "' === '" . $storedCode . "' = " . ($codesMatch ? 'TRUE' : 'FALSE'));
+                    
+                    if (!$codesMatch) {
+                        // Zusätzliche Debug-Info
+                        error_log("[CONFIRM] Hex comparison:");
+                        error_log("[CONFIRM] Input hex: " . bin2hex($verificationCode));
+                        error_log("[CONFIRM] Stored hex: " . bin2hex($storedCode));
                         
-                        if (!$storedCode || $verificationCode !== $storedCode) {
-                            Flash::error('Ungültiger Verifizierungscode. Versuchen Sie es erneut.');
-                        } else {
-                            // Code als verwendet markieren
-                            NotificationManager::clearVerificationCode($userId);
-                            // Chat-ID als verifiziert markieren
-                            TelegramManager::markUserChatIdVerified($userId);
-                            Flash::success('Telegram erfolgreich verifiziert! Benachrichtigungen sind jetzt aktiv.');
-                        }
+                        Flash::error('Ungültiger Verifizierungscode. Prüfen Sie die Eingabe.');
+                        break;
+                    }
+                    
+                    // Code als verwendet markieren
+                    $updateResult = Database::update(
+                        'telegram_log',
+                        ['status' => 'used'],
+                        'user_id = ? AND message_type = ? AND status = ?',
+                        [$userId, 'verification', 'pending']
+                    );
+                    
+                    error_log("[CONFIRM] Code mark as used: " . ($updateResult ? 'SUCCESS' : 'FAILED'));
+                    
+                    // Chat-ID als verifiziert UND aktiviert markieren
+                    $verifyResult = Database::update(
+                        'notification_settings',
+                        [
+                            'telegram_verified' => 1,
+                            'telegram_enabled' => 1  // WICHTIG: Auch aktivieren!
+                        ],
+                        'user_id = ?',
+                        [$userId]
+                    );
+                    
+                    error_log("[CONFIRM] Verification update result: " . ($verifyResult ? 'SUCCESS' : 'FAILED'));
+                    
+                    if ($verifyResult) {
+                        Flash::success('🎉 Telegram erfolgreich verifiziert und aktiviert! Benachrichtigungen sind jetzt aktiv.');
+                    } else {
+                        Flash::error('Code korrekt, aber Aktivierung fehlgeschlagen.');
                     }
                     
                 } catch (Exception $e) {
-                    Flash::error('Verifizierung fehlgeschlagen: ' . $e->getMessage());
+                    Flash::error('Bestätigung fehlgeschlagen: ' . $e->getMessage());
+                    error_log("[CONFIRM] Error: " . $e->getMessage());
                 }
                 break;
                 
@@ -1062,20 +1189,27 @@ include 'includes/navbar.php';
                                     
                                     <div class="row">
                                         <div class="col-md-6">
-                                            <button type="submit" name="action" value="telegram_verify" 
-                                                    class="btn btn-primary">
-                                                <i class="bi bi-send"></i> Verifizierungscode senden
-                                            </button>
+                                            <form method="POST" class="d-inline">
+                                                <input type="hidden" name="csrf_token" value="<?= $csrfToken ?>">
+                                                <input type="hidden" name="action" value="telegram_verify">
+                                                <input type="hidden" name="telegram_chat_id" value="<?= htmlspecialchars($notificationSettings['telegram_chat_id']) ?>">
+                                                <button type="submit" class="btn btn-primary">
+                                                    <i class="bi bi-send"></i> Verifizierungscode senden
+                                                </button>
+                                            </form>
                                         </div>
                                         <div class="col-md-6">
-                                            <div class="input-group">
-                                                <input type="text" class="form-control" name="verification_code"
-                                                       placeholder="6-stelliger Code aus Telegram">
-                                                <button type="submit" name="action" value="telegram_confirm"
-                                                        class="btn btn-success">
-                                                    <i class="bi bi-check-circle"></i> Bestätigen
-                                                </button>
-                                            </div>
+                                            <form method="POST" class="d-inline">
+                                                <input type="hidden" name="csrf_token" value="<?= $csrfToken ?>">
+                                                <input type="hidden" name="action" value="telegram_confirm">
+                                                <div class="input-group">
+                                                    <input type="text" class="form-control" name="verification_code"
+                                                           placeholder="6-stelliger Code aus Telegram" required>
+                                                    <button type="submit" class="btn btn-success">
+                                                        <i class="bi bi-check-circle"></i> Bestätigen
+                                                    </button>
+                                                </div>
+                                            </form>
                                         </div>
                                     </div>
                                 </div>

@@ -269,7 +269,7 @@ POST /api/receive-tasmota.php
 
 ## 🆕 Was ist neu?
 
-**Version 3.0 - Telegram Revolution:**
+**Version 3.0 - Telegram:**
 - 🤖 **Vollständiger Telegram Bot** - Zählerstände per Chat
 - 🧠 **Intelligente Texterkennung** - Versteht natürliche Sprache  
 - 📊 **Erweiterte Statistiken** - Trends und Prognosen
@@ -288,6 +288,6 @@ Open Source - kann frei verwendet und angepasst werden.
 
 ---
 
-**Version 3.0** - Mit revolutionärem Telegram Bot System | Build 2025-09
+**Version 3.0** - Mit Telegram Bot System | Build 2025-09
 
 🤖 **Der Stromtracker ist jetzt noch smarter - mit Telegram Bot wird Energiemanagement zum Kinderspiel!** ⚡

@@ -13,7 +13,7 @@
 // =============================================================================
 define('DB_HOST', 'localhost');
 define('DB_USER', 'root');
-define('DB_PASS', '');  // Bei XAMPP standardmäßig leer
+define('DB_PASS', '123');  // Bei XAMPP standardmäßig leer
 define('DB_NAME', 'stromtracker');
 define('DB_CHARSET', 'utf8mb4');
 

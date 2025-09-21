@@ -18,7 +18,7 @@ $userId = Auth::getUserId();
 $csrfToken = Auth::generateCSRFToken();
 
 // =============================================================================
-// PROFILBILD UPLOAD-HANDLER (unverändert)
+// PROFILBILD UPLOAD-HANDLER
 // =============================================================================
 
 class ProfileImageHandler {
@@ -295,7 +295,7 @@ class ProfileImageHandler {
 }
 
 // =============================================================================
-// API-KEY MANAGER CLASS (unverändert)
+// API-KEY MANAGER CLASS
 // =============================================================================
 
 class ApiKeyManager {
@@ -484,13 +484,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                         'cost_alert_enabled' => isset($_POST['cost_alert_enabled']),
                         'cost_alert_threshold' => max(10, (float)($_POST['cost_alert_threshold'] ?? 100)),
                         
-                        // Telegram-Einstellungen (korrigiert)
+                        // Telegram-Einstellungen
                         'telegram_enabled' => isset($_POST['telegram_enabled']),
                         'telegram_chat_id' => trim($_POST['telegram_chat_id'] ?? '')
                     ];
-                    
-                    // Debug-Logging hinzufügen
-                    error_log("[Profil] update_notifications - telegram_chat_id: '" . $notificationSettings['telegram_chat_id'] . "'");
                     
                     // TABELLEN-EXISTENZ PRÜFEN
                     $tableExists = Database::fetchOne("SHOW TABLES LIKE 'notification_settings'");
@@ -514,17 +511,14 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 break;
                 
             case 'telegram_verify':
-                // Telegram Verifizierung starten (REPARIERT + DEBUG)
+                // Telegram Verifizierung starten
                 try {
-                    error_log("=== TELEGRAM VERIFY START ===");
                     $chatId = trim($_POST['telegram_chat_id'] ?? '');
                     
                     if (empty($chatId)) {
                         Flash::error('Bitte geben Sie eine Chat-ID ein.');
                         break;
                     }
-                    
-                    error_log("[VERIFY] Chat ID: " . $chatId);
                     
                     // Chat-ID Format validieren
                     if (!preg_match('/^-?\d{5,15}$/', $chatId)) {
@@ -553,34 +547,22 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                         "UPDATE telegram_log SET status = 'expired' WHERE user_id = ? AND message_type = 'verification' AND status = 'pending'",
                         [$userId]
                     );
-                    error_log("[VERIFY] Old pending codes expired");
                     
                     // Verifizierungscode generieren
                     $verificationCode = sprintf('%06d', mt_rand(100000, 999999));
-                    error_log("[VERIFY] Generated code: " . $verificationCode);
                     
                     // Code senden
                     $success = TelegramManager::sendUserVerificationCode($userId, $chatId, $verificationCode);
-                    error_log("[VERIFY] Send result: " . ($success ? 'SUCCESS' : 'FAILED'));
                     
                     if ($success) {
                         // Code in telegram_log speichern
-                        $insertResult = Database::insert('telegram_log', [
+                        Database::insert('telegram_log', [
                             'user_id' => $userId,
                             'chat_id' => $chatId,
                             'message_type' => 'verification',
                             'message_text' => $verificationCode,
                             'status' => 'pending'
                         ]);
-                        
-                        error_log("[VERIFY] Code insert result: " . ($insertResult ? 'SUCCESS' : 'FAILED'));
-                        
-                        // Verifikation: Code wieder auslesen
-                        $verification = Database::fetchOne(
-                            "SELECT message_text FROM telegram_log WHERE id = ?",
-                            [$insertResult]
-                        );
-                        error_log("[VERIFY] Code verification: '" . ($verification['message_text'] ?? 'NULL') . "'");
                         
                         // Chat-ID speichern (unverified)
                         Database::update(
@@ -601,34 +583,17 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     
                 } catch (Exception $e) {
                     Flash::error('Verifizierung fehlgeschlagen: ' . $e->getMessage());
-                    error_log("[VERIFY] Error: " . $e->getMessage());
                 }
                 break;
                 
             case 'telegram_confirm':
-                // Telegram Verifizierungscode bestätigen (REPARIERT + DEBUG)
+                // Telegram Verifizierungscode bestätigen
                 try {
-                    error_log("=== TELEGRAM CONFIRM START ===");
                     $verificationCode = trim($_POST['verification_code'] ?? '');
                     
                     if (empty($verificationCode)) {
                         Flash::error('Bitte geben Sie den Verifizierungscode ein.');
                         break;
-                    }
-                    
-                    error_log("[CONFIRM] Code eingegeben: '" . $verificationCode . "' (Length: " . strlen($verificationCode) . ")");
-                    
-                    // ALLE pending codes für User anzeigen (Debug)
-                    $allPending = Database::fetchAll(
-                        "SELECT id, message_text, created_at FROM telegram_log 
-                         WHERE user_id = ? AND message_type = 'verification' AND status = 'pending'
-                         ORDER BY created_at DESC",
-                        [$userId]
-                    );
-                    
-                    error_log("[CONFIRM] Found " . count($allPending) . " pending codes:");
-                    foreach ($allPending as $idx => $pending) {
-                        error_log("[CONFIRM] Code #" . ($idx+1) . ": '" . $pending['message_text'] . "' (ID: " . $pending['id'] . ", Created: " . $pending['created_at'] . ")");
                     }
                     
                     // Code aus telegram_log abrufen
@@ -640,49 +605,38 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     );
                     
                     $storedCode = $storedCodeRecord ? $storedCodeRecord['message_text'] : null;
-                    error_log("[CONFIRM] Latest stored code: '" . $storedCode . "' (Length: " . strlen($storedCode ?? '') . ")");
                     
                     if (!$storedCode) {
                         Flash::error('Kein gültiger Verifizierungscode gefunden. Senden Sie einen neuen Code.');
                         break;
                     }
                     
-                    // String-Vergleich mit Debug
+                    // String-Vergleich
                     $codesMatch = ($verificationCode === $storedCode);
-                    error_log("[CONFIRM] String comparison: '" . $verificationCode . "' === '" . $storedCode . "' = " . ($codesMatch ? 'TRUE' : 'FALSE'));
                     
                     if (!$codesMatch) {
-                        // Zusätzliche Debug-Info
-                        error_log("[CONFIRM] Hex comparison:");
-                        error_log("[CONFIRM] Input hex: " . bin2hex($verificationCode));
-                        error_log("[CONFIRM] Stored hex: " . bin2hex($storedCode));
-                        
                         Flash::error('Ungültiger Verifizierungscode. Prüfen Sie die Eingabe.');
                         break;
                     }
                     
                     // Code als verwendet markieren
-                    $updateResult = Database::update(
+                    Database::update(
                         'telegram_log',
                         ['status' => 'used'],
                         'user_id = ? AND message_type = ? AND status = ?',
                         [$userId, 'verification', 'pending']
                     );
                     
-                    error_log("[CONFIRM] Code mark as used: " . ($updateResult ? 'SUCCESS' : 'FAILED'));
-                    
                     // Chat-ID als verifiziert UND aktiviert markieren
                     $verifyResult = Database::update(
                         'notification_settings',
                         [
                             'telegram_verified' => 1,
-                            'telegram_enabled' => 1  // WICHTIG: Auch aktivieren!
+                            'telegram_enabled' => 1
                         ],
                         'user_id = ?',
                         [$userId]
                     );
-                    
-                    error_log("[CONFIRM] Verification update result: " . ($verifyResult ? 'SUCCESS' : 'FAILED'));
                     
                     if ($verifyResult) {
                         Flash::success('🎉 Telegram erfolgreich verifiziert und aktiviert! Benachrichtigungen sind jetzt aktiv.');
@@ -692,7 +646,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     
                 } catch (Exception $e) {
                     Flash::error('Bestätigung fehlgeschlagen: ' . $e->getMessage());
-                    error_log("[CONFIRM] Error: " . $e->getMessage());
                 }
                 break;
                 
@@ -876,9 +829,11 @@ include 'includes/navbar.php';
                             ?>
                                 <img src="<?= htmlspecialchars($currentImage) ?>" 
                                      alt="Profilbild" 
-                                     class="profile-header-image">
+                                     class="profile-header-image"
+                                     style="width: 120px; height: 120px; border-radius: 50%; object-fit: cover; border: 4px solid var(--energy); box-shadow: 0 4px 16px rgba(245, 158, 11, 0.3);">
                             <?php else: ?>
-                                <div class="profile-header-placeholder">
+                                <div class="profile-header-placeholder"
+                                     style="width: 120px; height: 120px; border-radius: 50%; background: linear-gradient(135deg, var(--energy), #d97706); display: flex; align-items: center; justify-content: center; color: white; font-size: 2.5rem; font-weight: bold; border: 4px solid var(--energy); box-shadow: 0 4px 16px rgba(245, 158, 11, 0.3);">
                                     <?= strtoupper(substr($userData['name'] ?? 'User', 0, 2)) ?>
                                 </div>
                             <?php endif; ?>
@@ -942,7 +897,7 @@ include 'includes/navbar.php';
             <!-- Tab Content -->
             <div class="tab-content" id="profileTabContent">
                 
-                <!-- Profil Tab (unverändert) -->
+                <!-- Profil Tab -->
                 <div class="tab-pane fade show active" id="profile" role="tabpanel">
                     <div class="card">
                         <div class="card-header">
@@ -979,7 +934,7 @@ include 'includes/navbar.php';
                     </div>
                 </div>
                 
-                <!-- Benachrichtigungen Tab (erweitert um Telegram) -->
+                <!-- Benachrichtigungen Tab -->
                 <div class="tab-pane fade" id="notifications" role="tabpanel">
                     <div class="card">
                         <div class="card-header">
@@ -990,7 +945,7 @@ include 'includes/navbar.php';
                         </div>
                         <div class="card-body">
                             
-                            <!-- Aktueller Status (erweitert) -->
+                            <!-- Aktueller Status -->
                             <div class="row mb-4">
                                 <div class="col-md-4">
                                     <div class="alert alert-info">
@@ -1048,8 +1003,8 @@ include 'includes/navbar.php';
                                 </div>
                             </div>
                             
-                            <!-- Einstellungs-Form (erweitert um Telegram) -->
-                            <form method="POST">
+                            <!-- Einstellungs-Form -->
+                            <form method="POST" id="notificationSettingsForm">
                                 <input type="hidden" name="csrf_token" value="<?= $csrfToken ?>">
                                 <input type="hidden" name="action" value="update_notifications">
                                 
@@ -1072,81 +1027,6 @@ include 'includes/navbar.php';
                                 <hr>
                                 
                                 <h6>📱 Telegram Benachrichtigungen</h6>
-                                
-                                <!-- Bot-Token Konfiguration -->
-                                <div class="card bg-light mb-3">
-                                    <div class="card-body">
-                                        <h6><i class="bi bi-robot"></i> Ihr persönlicher Bot</h6>
-                                        
-                                        <?php if (!empty($telegramUserSettings['telegram_bot_token'])): ?>
-                                        <!-- Bot bereits konfiguriert -->
-                                        <div class="alert alert-success mb-2">
-                                            <div class="row align-items-center">
-                                                <div class="col-md-8">
-                                                    <strong>✅ Bot konfiguriert:</strong> @<?= htmlspecialchars($telegramBotInfo['username'] ?? 'unbekannt') ?><br>
-                                                    <small class="text-muted">
-                                                        Token: <?= substr($telegramUserSettings['telegram_bot_token'], 0, 15) ?>...
-                                                        <?php if ($telegramUserSettings['telegram_bot_token'] === 'demo'): ?>
-                                                        <span class="badge bg-warning">DEMO</span>
-                                                        <?php endif; ?>
-                                                    </small>
-                                                </div>
-                                                <div class="col-md-4 text-end">
-                                                    <button type="button" class="btn btn-sm btn-outline-primary" 
-                                                            data-bs-toggle="collapse" data-bs-target="#changeBotForm">
-                                                        <i class="bi bi-pencil"></i> Ändern
-                                                    </button>
-                                                    <form method="POST" class="d-inline">
-                                                        <input type="hidden" name="csrf_token" value="<?= $csrfToken ?>">
-                                                        <input type="hidden" name="action" value="telegram_remove_bot">
-                                                        <button type="submit" class="btn btn-sm btn-outline-danger"
-                                                                onclick="return confirm('Bot-Token wirklich entfernen?')">
-                                                            <i class="bi bi-trash"></i>
-                                                        </button>
-                                                    </form>
-                                                </div>
-                                            </div>
-                                        </div>
-                                        
-                                        <div class="collapse" id="changeBotForm">
-                                        <?php else: ?>
-                                        <!-- Kein Bot konfiguriert -->
-                                        <div class="alert alert-info mb-2">
-                                            <strong><i class="bi bi-info-circle"></i> Kein Bot konfiguriert</strong><br>
-                                            Erstellen Sie einen eigenen Telegram-Bot für persönliche Benachrichtigungen.
-                                        </div>
-                                        <?php endif; ?>
-                                        
-                                            <form method="POST">
-                                                <input type="hidden" name="csrf_token" value="<?= $csrfToken ?>">
-                                                <input type="hidden" name="action" value="telegram_save_bot">
-                                                
-                                                <div class="row">
-                                                    <div class="col-md-8 mb-3">
-                                                        <label for="telegram_bot_token" class="form-label">
-                                                            <i class="bi bi-key"></i> Bot-Token
-                                                        </label>
-                                                        <input type="text" class="form-control font-monospace" 
-                                                               id="telegram_bot_token" name="telegram_bot_token"
-                                                               placeholder="123456789:ABCdefGHijKLmnopQRstuvwxyz oder 'demo'"
-                                                               value="<?= htmlspecialchars($telegramUserSettings['telegram_bot_token'] ?? '') ?>">
-                                                        <small class="text-muted">
-                                                            🤖 Erstellen Sie einen Bot bei @BotFather oder verwenden Sie 'demo' zum Testen
-                                                        </small>
-                                                    </div>
-                                                    <div class="col-md-4 mb-3 d-flex align-items-end">
-                                                        <button type="submit" class="btn btn-primary w-100">
-                                                            <i class="bi bi-check-circle"></i> Bot Speichern
-                                                        </button>
-                                                    </div>
-                                                </div>
-                                            </form>
-                                            
-                                        <?php if (!empty($telegramUserSettings['telegram_bot_token'])): ?>
-                                        </div>
-                                        <?php endif; ?>
-                                    </div>
-                                </div>
                                 
                                 <?php if (!empty($telegramUserSettings['telegram_bot_token'])): ?>
                                 <!-- Chat-ID und Aktivierung nur wenn Bot konfiguriert -->
@@ -1178,55 +1058,6 @@ include 'includes/navbar.php';
                                             Starten Sie @<?= $telegramBotInfo['username'] ?? 'ihren_bot' ?> in Telegram
                                         </small>
                                     </div>
-                                </div>
-                                <?php endif; ?>
-                                
-                                <!-- Telegram Verifizierung (nur wenn Bot konfiguriert) -->
-                                <?php if (!empty($telegramUserSettings['telegram_bot_token']) && $notificationSettings['telegram_chat_id'] && !$notificationSettings['telegram_verified']): ?>
-                                <div class="alert alert-warning">
-                                    <h6><i class="bi bi-shield-exclamation"></i> Verifizierung erforderlich</h6>
-                                    <p>Ihre Chat-ID muss verifiziert werden, bevor Telegram-Benachrichtigungen aktiviert werden können.</p>
-                                    
-                                    <div class="row">
-                                        <div class="col-md-6">
-                                            <form method="POST" class="d-inline">
-                                                <input type="hidden" name="csrf_token" value="<?= $csrfToken ?>">
-                                                <input type="hidden" name="action" value="telegram_verify">
-                                                <input type="hidden" name="telegram_chat_id" value="<?= htmlspecialchars($notificationSettings['telegram_chat_id']) ?>">
-                                                <button type="submit" class="btn btn-primary">
-                                                    <i class="bi bi-send"></i> Verifizierungscode senden
-                                                </button>
-                                            </form>
-                                        </div>
-                                        <div class="col-md-6">
-                                            <form method="POST" class="d-inline">
-                                                <input type="hidden" name="csrf_token" value="<?= $csrfToken ?>">
-                                                <input type="hidden" name="action" value="telegram_confirm">
-                                                <div class="input-group">
-                                                    <input type="text" class="form-control" name="verification_code"
-                                                           placeholder="6-stelliger Code aus Telegram" required>
-                                                    <button type="submit" class="btn btn-success">
-                                                        <i class="bi bi-check-circle"></i> Bestätigen
-                                                    </button>
-                                                </div>
-                                            </form>
-                                        </div>
-                                    </div>
-                                </div>
-                                <?php endif; ?>
-                                
-                                <!-- Telegram Test (nur wenn Bot konfiguriert und verifiziert) -->
-                                <?php if (!empty($telegramUserSettings['telegram_bot_token']) && $notificationSettings['telegram_enabled'] && $notificationSettings['telegram_verified']): ?>
-                                <div class="alert alert-success">
-                                    <h6><i class="bi bi-check-circle"></i> Telegram ist bereit!</h6>
-                                    <p class="mb-2">Ihre Telegram-Benachrichtigungen sind aktiv und verifiziert.</p>
-                                    <form method="POST" class="d-inline">
-                                        <input type="hidden" name="csrf_token" value="<?= $csrfToken ?>">
-                                        <input type="hidden" name="action" value="telegram_test">
-                                        <button type="submit" class="btn btn-outline-primary btn-sm">
-                                            <i class="bi bi-chat-dots"></i> Test-Nachricht senden
-                                        </button>
-                                    </form>
                                 </div>
                                 <?php endif; ?>
                                 
@@ -1314,12 +1145,143 @@ include 'includes/navbar.php';
                                     </div>
                                 </div>
                                 
-                                <button type="submit" class="btn btn-success btn-lg">
-                                    <i class="bi bi-check-circle"></i> Alle Einstellungen Speichern
-                                </button>
+                                <div class="d-grid gap-2 mt-4">
+                                    <button type="submit" class="btn btn-success btn-lg">
+                                        <i class="bi bi-check-circle"></i> Alle Einstellungen Speichern
+                                    </button>
+                                </div>
                             </form>
                             
-                            <!-- Statistiken (erweitert um Telegram) -->
+                            <?php if ($telegramEnabled): ?>
+                            <!-- Telegram-Management -->
+                            <div class="mt-4">
+                                <!-- Bot-Token Konfiguration -->
+                                <div class="card bg-light mb-3">
+                                    <div class="card-body">
+                                        <h6><i class="bi bi-robot"></i> Ihr persönlicher Bot</h6>
+                                        
+                                        <?php if (!empty($telegramUserSettings['telegram_bot_token'])): ?>
+                                        <!-- Bot bereits konfiguriert -->
+                                        <div class="alert alert-success mb-2">
+                                            <div class="row align-items-center">
+                                                <div class="col-md-8">
+                                                    <strong>✅ Bot konfiguriert:</strong> @<?= htmlspecialchars($telegramBotInfo['username'] ?? 'unbekannt') ?><br>
+                                                    <small class="text-muted">
+                                                        Token: <?= substr($telegramUserSettings['telegram_bot_token'], 0, 15) ?>...
+                                                        <?php if ($telegramUserSettings['telegram_bot_token'] === 'demo'): ?>
+                                                        <span class="badge bg-warning">DEMO</span>
+                                                        <?php endif; ?>
+                                                    </small>
+                                                </div>
+                                                <div class="col-md-4 text-end">
+                                                    <button type="button" class="btn btn-sm btn-outline-primary" 
+                                                            data-bs-toggle="collapse" data-bs-target="#changeBotForm">
+                                                        <i class="bi bi-pencil"></i> Ändern
+                                                    </button>
+                                                    <form method="POST" class="d-inline">
+                                                        <input type="hidden" name="csrf_token" value="<?= $csrfToken ?>">
+                                                        <input type="hidden" name="action" value="telegram_remove_bot">
+                                                        <button type="submit" class="btn btn-sm btn-outline-danger"
+                                                                onclick="return confirm('Bot-Token wirklich entfernen?')">
+                                                            <i class="bi bi-trash"></i>
+                                                        </button>
+                                                    </form>
+                                                </div>
+                                            </div>
+                                        </div>
+                                        
+                                        <div class="collapse" id="changeBotForm">
+                                        <?php else: ?>
+                                        <!-- Kein Bot konfiguriert -->
+                                        <div class="alert alert-info mb-2">
+                                            <strong><i class="bi bi-info-circle"></i> Kein Bot konfiguriert</strong><br>
+                                            Erstellen Sie einen eigenen Telegram-Bot für persönliche Benachrichtigungen.
+                                        </div>
+                                        <?php endif; ?>
+                                        
+                                            <form method="POST">
+                                                <input type="hidden" name="csrf_token" value="<?= $csrfToken ?>">
+                                                <input type="hidden" name="action" value="telegram_save_bot">
+                                                
+                                                <div class="row">
+                                                    <div class="col-md-8 mb-3">
+                                                        <label for="telegram_bot_token" class="form-label">
+                                                            <i class="bi bi-key"></i> Bot-Token
+                                                        </label>
+                                                        <input type="text" class="form-control font-monospace" 
+                                                               id="telegram_bot_token" name="telegram_bot_token"
+                                                               placeholder="123456789:ABCdefGHijKLmnopQRstuvwxyz oder 'demo'"
+                                                               value="<?= htmlspecialchars($telegramUserSettings['telegram_bot_token'] ?? '') ?>">
+                                                        <small class="text-muted">
+                                                            🤖 Erstellen Sie einen Bot bei @BotFather oder verwenden Sie 'demo' zum Testen
+                                                        </small>
+                                                    </div>
+                                                    <div class="col-md-4 mb-3 d-flex align-items-end">
+                                                        <button type="submit" class="btn btn-primary w-100">
+                                                            <i class="bi bi-check-circle"></i> Bot Speichern
+                                                        </button>
+                                                    </div>
+                                                </div>
+                                            </form>
+                                            
+                                        <?php if (!empty($telegramUserSettings['telegram_bot_token'])): ?>
+                                        </div>
+                                        <?php endif; ?>
+                                    </div>
+                                </div>
+                                
+                                <!-- Telegram Verifizierung -->
+                                <?php if (!empty($telegramUserSettings['telegram_bot_token']) && $notificationSettings['telegram_chat_id'] && !$notificationSettings['telegram_verified']): ?>
+                                <div class="alert alert-warning">
+                                    <h6><i class="bi bi-shield-exclamation"></i> Verifizierung erforderlich</h6>
+                                    <p>Ihre Chat-ID muss verifiziert werden, bevor Telegram-Benachrichtigungen aktiviert werden können.</p>
+                                    
+                                    <div class="row">
+                                        <div class="col-md-6">
+                                            <form method="POST" class="d-inline">
+                                                <input type="hidden" name="csrf_token" value="<?= $csrfToken ?>">
+                                                <input type="hidden" name="action" value="telegram_verify">
+                                                <input type="hidden" name="telegram_chat_id" value="<?= htmlspecialchars($notificationSettings['telegram_chat_id']) ?>">
+                                                <button type="submit" class="btn btn-primary">
+                                                    <i class="bi bi-send"></i> Verifizierungscode senden
+                                                </button>
+                                            </form>
+                                        </div>
+                                        <div class="col-md-6">
+                                            <form method="POST" class="d-inline">
+                                                <input type="hidden" name="csrf_token" value="<?= $csrfToken ?>">
+                                                <input type="hidden" name="action" value="telegram_confirm">
+                                                <div class="input-group">
+                                                    <input type="text" class="form-control" name="verification_code"
+                                                           placeholder="6-stelliger Code aus Telegram" required>
+                                                    <button type="submit" class="btn btn-success">
+                                                        <i class="bi bi-check-circle"></i> Bestätigen
+                                                    </button>
+                                                </div>
+                                            </form>
+                                        </div>
+                                    </div>
+                                </div>
+                                <?php endif; ?>
+                                
+                                <!-- Telegram Test -->
+                                <?php if (!empty($telegramUserSettings['telegram_bot_token']) && $notificationSettings['telegram_enabled'] && $notificationSettings['telegram_verified']): ?>
+                                <div class="alert alert-success">
+                                    <h6><i class="bi bi-check-circle"></i> Telegram ist bereit!</h6>
+                                    <p class="mb-2">Ihre Telegram-Benachrichtigungen sind aktiv und verifiziert.</p>
+                                    <form method="POST" class="d-inline">
+                                        <input type="hidden" name="csrf_token" value="<?= $csrfToken ?>">
+                                        <input type="hidden" name="action" value="telegram_test">
+                                        <button type="submit" class="btn btn-outline-primary btn-sm">
+                                            <i class="bi bi-chat-dots"></i> Test-Nachricht senden
+                                        </button>
+                                    </form>
+                                </div>
+                                <?php endif; ?>
+                            </div>
+                            <?php endif; ?>
+                            
+                            <!-- Statistiken -->
                             <div class="card bg-light mt-4">
                                 <div class="card-body">
                                     <h6><i class="bi bi-bar-chart"></i> Benachrichtigungsstatistik</h6>
@@ -1374,10 +1336,258 @@ include 'includes/navbar.php';
                     </div>
                 </div>
                 
-                <!-- Weitere Tabs unverändert... (Profilbild, Passwort, API-Keys, Account) -->
-                <!-- [Hier würden die anderen Tabs folgen - gekürzt für Übersichtlichkeit] -->
+                <!-- Profilbild Tab -->
+                <div class="tab-pane fade" id="image" role="tabpanel">
+                    <div class="card">
+                        <div class="card-header">
+                            <h5 class="mb-0">
+                                <i class="bi bi-image text-energy"></i>
+                                Profilbild verwalten
+                            </h5>
+                        </div>
+                        <div class="card-body">
+                            
+                            <!-- Aktuelles Profilbild anzeigen -->
+                            <div class="row mb-4">
+                                <div class="col-md-12">
+                                    <h6>Aktuelles Profilbild</h6>
+                                    <div class="text-center mb-3">
+                                        <?php
+                                        $currentImage = ProfileImageHandler::getImageUrl($userData['profile_image']);
+                                        if ($currentImage):
+                                        ?>
+                                            <img src="<?= htmlspecialchars($currentImage) ?>" 
+                                                 alt="Profilbild" 
+                                                 class="img-thumbnail"
+                                                 style="width: 200px; height: 200px; object-fit: cover;">
+                                            <div class="mt-2">
+                                                <form method="POST" class="d-inline">
+                                                    <input type="hidden" name="csrf_token" value="<?= $csrfToken ?>">
+                                                    <input type="hidden" name="action" value="delete_image">
+                                                    <button type="submit" class="btn btn-outline-danger btn-sm"
+                                                            onclick="return confirm('Profilbild wirklich löschen?')">
+                                                        <i class="bi bi-trash"></i> Bild löschen
+                                                    </button>
+                                                </form>
+                                            </div>
+                                        <?php else: ?>
+                                            <div class="alert alert-info">
+                                                <i class="bi bi-image"></i> Noch kein Profilbild hochgeladen
+                                            </div>
+                                        <?php endif; ?>
+                                    </div>
+                                </div>
+                            </div>
+                            
+                            <hr>
+                            
+                            <!-- Neues Profilbild hochladen -->
+                            <div class="row">
+                                <div class="col-md-12">
+                                    <h6>Neues Profilbild hochladen</h6>
+                                    <form method="POST" enctype="multipart/form-data">
+                                        <input type="hidden" name="csrf_token" value="<?= $csrfToken ?>">
+                                        <input type="hidden" name="action" value="upload_image">
+                                        
+                                        <div class="mb-3">
+                                            <label for="profile_image" class="form-label">Bilddatei auswählen</label>
+                                            <input type="file" class="form-control" id="profile_image" name="profile_image" 
+                                                   accept="image/jpeg,image/png,image/gif" required>
+                                            <div class="form-text">
+                                                <strong>Unterstützte Formate:</strong> JPG, PNG, GIF<br>
+                                                <strong>Maximale Größe:</strong> 2 MB<br>
+                                                <strong>Empfohlene Auflösung:</strong> 400x400 Pixel (wird automatisch angepasst)
+                                            </div>
+                                        </div>
+                                        
+                                        <button type="submit" class="btn btn-primary">
+                                            <i class="bi bi-upload"></i> Profilbild hochladen
+                                        </button>
+                                    </form>
+                                </div>
+                            </div>
+                            
+                            <!-- Hinweise -->
+                            <div class="alert alert-light mt-4">
+                                <h6><i class="bi bi-info-circle"></i> Hinweise zum Profilbild</h6>
+                                <ul class="mb-0">
+                                    <li>Das Bild wird automatisch auf 400x400 Pixel verkleinert</li>
+                                    <li>Verwenden Sie ein quadratisches Bild für beste Ergebnisse</li>
+                                    <li>Das Profilbild wird rund angezeigt</li>
+                                    <li>Änderungen sind sofort sichtbar</li>
+                                </ul>
+                            </div>
+                        </div>
+                    </div>
+                </div>
                 
-                <!-- API-Keys Tab (beispielhaft eingefügt) -->
+                <!-- Password Tab -->
+                <div class="tab-pane fade" id="password" role="tabpanel">
+                    <div class="card">
+                        <div class="card-header">
+                            <h5 class="mb-0">
+                                <i class="bi bi-lock text-energy"></i>
+                                Passwort ändern
+                            </h5>
+                        </div>
+                        <div class="card-body">
+                            <div class="alert alert-warning">
+                                <i class="bi bi-shield-exclamation"></i>
+                                <strong>Sicherheitshinweis:</strong> Wählen Sie ein starkes Passwort mit mindestens 6 Zeichen.
+                            </div>
+                            
+                            <form method="POST">
+                                <input type="hidden" name="csrf_token" value="<?= $csrfToken ?>">
+                                <input type="hidden" name="action" value="change_password">
+                                
+                                <div class="row">
+                                    <div class="col-md-12 mb-3">
+                                        <label for="current_password" class="form-label">Aktuelles Passwort</label>
+                                        <input type="password" class="form-control" id="current_password" 
+                                               name="current_password" required autocomplete="current-password">
+                                    </div>
+                                </div>
+                                
+                                <div class="row">
+                                    <div class="col-md-6 mb-3">
+                                        <label for="new_password" class="form-label">Neues Passwort</label>
+                                        <input type="password" class="form-control" id="new_password" 
+                                               name="new_password" required autocomplete="new-password"
+                                               minlength="6">
+                                        <div class="form-text">Mindestens 6 Zeichen</div>
+                                    </div>
+                                    <div class="col-md-6 mb-3">
+                                        <label for="confirm_password" class="form-label">Passwort bestätigen</label>
+                                        <input type="password" class="form-control" id="confirm_password" 
+                                               name="confirm_password" required autocomplete="new-password"
+                                               minlength="6">
+                                        <div class="form-text">Neues Passwort wiederholen</div>
+                                    </div>
+                                </div>
+                                
+                                <button type="submit" class="btn btn-warning">
+                                    <i class="bi bi-key"></i> Passwort ändern
+                                </button>
+                            </form>
+                            
+                            <!-- Passwort-Sicherheitstipps -->
+                            <div class="card bg-light mt-4">
+                                <div class="card-body">
+                                    <h6><i class="bi bi-shield-check"></i> Tipps für ein sicheres Passwort</h6>
+                                    <div class="row">
+                                        <div class="col-md-6">
+                                            <strong>✅ Empfohlen:</strong>
+                                            <ul class="mb-0">
+                                                <li>Mindestens 8-12 Zeichen</li>
+                                                <li>Groß- und Kleinbuchstaben</li>
+                                                <li>Zahlen und Sonderzeichen</li>
+                                                <li>Einzigartiges Passwort</li>
+                                            </ul>
+                                        </div>
+                                        <div class="col-md-6">
+                                            <strong>❌ Vermeiden:</strong>
+                                            <ul class="mb-0">
+                                                <li>Persönliche Daten (Name, Geburtstag)</li>
+                                                <li>Einfache Wörter oder Zahlenfolgen</li>
+                                                <li>Wiederverwendung anderer Passwörter</li>
+                                                <li>Zu kurze Passwörter</li>
+                                            </ul>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                
+                <!-- Account Tab -->
+                <div class="tab-pane fade" id="account" role="tabpanel">
+                    <div class="card">
+                        <div class="card-header">
+                            <h5 class="mb-0">
+                                <i class="bi bi-info-circle text-energy"></i>
+                                Account-Informationen
+                            </h5>
+                        </div>
+                        <div class="card-body">
+                            
+                            <!-- Account-Statistiken -->
+                            <div class="row mb-4">
+                                <div class="col-md-3">
+                                    <div class="text-center p-3 bg-light rounded">
+                                        <div class="h4 text-primary"><?= $accountStats['total_readings'] ?></div>
+                                        <small class="text-muted">Zählerstände</small>
+                                    </div>
+                                </div>
+                                <div class="col-md-3">
+                                    <div class="text-center p-3 bg-light rounded">
+                                        <div class="h4 text-energy"><?= $accountStats['total_devices'] ?></div>
+                                        <small class="text-muted">Geräte</small>
+                                    </div>
+                                </div>
+                                <div class="col-md-3">
+                                    <div class="text-center p-3 bg-light rounded">
+                                        <div class="h4 text-success"><?= $accountStats['total_tariffs'] ?></div>
+                                        <small class="text-muted">Tarife</small>
+                                    </div>
+                                </div>
+                                <div class="col-md-3">
+                                    <div class="text-center p-3 bg-light rounded">
+                                        <div class="h4 text-info"><?= $daysSinceRegistration ?></div>
+                                        <small class="text-muted">Tage aktiv</small>
+                                    </div>
+                                </div>
+                            </div>
+                            
+                            <!-- Account-Details -->
+                            <h6>Account-Details</h6>
+                            <div class="table-responsive">
+                                <table class="table table-borderless">
+                                    <tr>
+                                        <td><strong>Benutzer-ID:</strong></td>
+                                        <td><?= $userId ?></td>
+                                    </tr>
+                                    <tr>
+                                        <td><strong>Registriert seit:</strong></td>
+                                        <td><?= date('d.m.Y H:i', strtotime($accountStats['registration_date'])) ?> Uhr</td>
+                                    </tr>
+                                    <tr>
+                                        <td><strong>Letzter Login:</strong></td>
+                                        <td><?= isset($userData['last_login']) ? date('d.m.Y H:i', strtotime($userData['last_login'])) . ' Uhr' : 'Unbekannt' ?></td>
+                                    </tr>
+                                    <tr>
+                                        <td><strong>Account-Status:</strong></td>
+                                        <td><span class="badge bg-success">Aktiv</span></td>
+                                    </tr>
+                                </table>
+                            </div>
+                            
+                            <!-- System-Informationen -->
+                            <hr>
+                            <h6>System-Informationen</h6>
+                            <div class="row">
+                                <div class="col-md-6">
+                                    <div class="alert alert-info">
+                                        <h6><i class="bi bi-server"></i> Stromtracker-Version</h6>
+                                        <p class="mb-1"><strong>Version:</strong> 2.1.0</p>
+                                        <p class="mb-1"><strong>Build:</strong> <?= date('Y.m.d') ?></p>
+                                        <p class="mb-0"><strong>Features:</strong> Telegram, API, Charts</p>
+                                    </div>
+                                </div>
+                                <div class="col-md-6">
+                                    <div class="alert alert-success">
+                                        <h6><i class="bi bi-shield-check"></i> Sicherheit</h6>
+                                        <p class="mb-1"><strong>Verschlüsselung:</strong> ✅ HTTPS</p>
+                                        <p class="mb-1"><strong>Sessions:</strong> ✅ Sicher</p>
+                                        <p class="mb-0"><strong>CSRF-Schutz:</strong> ✅ Aktiv</p>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                
+                <!-- API-Keys Tab -->
                 <div class="tab-pane fade" id="api" role="tabpanel">
                     <div class="card">
                         <div class="card-header">
@@ -1533,10 +1743,8 @@ include 'includes/navbar.php';
 
 <?php include 'includes/footer.php'; ?>
 
-<!-- Custom CSS (erweitert) -->
+<!-- Custom CSS -->
 <style>
-/* Bestehende Styles bleiben unverändert... */
-
 /* Telegram-spezifische Styles */
 .telegram-status {
     display: inline-flex;
@@ -1576,10 +1784,8 @@ include 'includes/navbar.php';
 }
 </style>
 
-<!-- JavaScript (erweitert um Telegram) -->
+<!-- JavaScript -->
 <script>
-// Bestehende JavaScript-Funktionen bleiben...
-
 // API-Key in Zwischenablage kopieren
 function copyApiKey() {
     const apiKeyField = document.getElementById('current-api-key');
@@ -1642,52 +1848,24 @@ function validateTelegramChatId(input) {
             feedback.className = 'invalid-feedback';
             input.parentNode.appendChild(feedback);
         }
-        feedback.textContent = 'Chat-ID muss eine Nummer mit mindestens 5 Stellen sein (z.B. 123456789)';
+        
+        feedback.textContent = 'Ungültige Chat-ID. Nur Zahlen erlaubt.';
     } else {
         input.classList.remove('is-invalid');
-        const feedback = input.nextElementSibling;
-        if (feedback && feedback.classList.contains('invalid-feedback')) {
+        const feedback = input.parentNode.querySelector('.invalid-feedback');
+        if (feedback) {
             feedback.remove();
         }
     }
 }
 
-// Event Listeners
+// Event Listener für Telegram Chat-ID
 document.addEventListener('DOMContentLoaded', function() {
-    // Telegram Chat-ID Validierung
-    const chatIdInput = document.getElementById('telegram_chat_id');
-    if (chatIdInput) {
-        chatIdInput.addEventListener('input', function() {
+    const telegramChatIdInput = document.getElementById('telegram_chat_id');
+    if (telegramChatIdInput) {
+        telegramChatIdInput.addEventListener('input', function() {
             validateTelegramChatId(this);
         });
-        
-        // Beim Laden validieren falls bereits Wert vorhanden
-        if (chatIdInput.value) {
-            validateTelegramChatId(chatIdInput);
-        }
-    }
-    
-    // Telegram aktivieren/deaktivieren abhängig von Chat-ID
-    const telegramEnabledCheckbox = document.getElementById('telegram_enabled');
-    const telegramChatIdInput = document.getElementById('telegram_chat_id');
-    
-    if (telegramEnabledCheckbox && telegramChatIdInput) {
-        function updateTelegramState() {
-            if (telegramEnabledCheckbox.checked && !telegramChatIdInput.value.trim()) {
-                showToast('Bitte geben Sie eine Chat-ID ein, um Telegram zu aktivieren', 'warning');
-                telegramEnabledCheckbox.checked = false;
-            }
-        }
-        
-        telegramEnabledCheckbox.addEventListener('change', updateTelegramState);
-    }
-    
-    // Automatisches Öffnen des Benachrichtigungen-Tabs falls Hash vorhanden
-    if (window.location.hash === '#notifications-tab') {
-        const notificationsTab = document.getElementById('notifications-tab');
-        if (notificationsTab) {
-            notificationsTab.click();
-        }
     }
 });
 </script>

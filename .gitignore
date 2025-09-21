@@ -17,3 +17,4 @@ logs/tasmota-debug.log
 api/logs/tasmota-api.log
 schema.json
 debug_files/
+css/style.-backup.css

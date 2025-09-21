@@ -44,7 +44,7 @@
             left: 0;
             width: 100%;
             height: 100%;
-            background: var(--initial-bg, #f9fafb);
+            // background: var(--initial-bg, #f9fafb);
             z-index: 9999;
             display: flex;
             align-items: center;
@@ -87,7 +87,7 @@
     
     <!-- Chart.js für Diagramme -->
     <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.js"></script>
-    <script src="/js/tasmota-integration.js"></script>
+    <script src="../js/tasmota-integration.js"></script>
     
     <!-- Favicon -->
     <link rel="icon" type="image/x-icon" href="favicon.ico">

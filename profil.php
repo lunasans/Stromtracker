@@ -473,7 +473,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 break;
                 
             case 'update_notifications':
-                // Benachrichtigungseinstellungen speichern (inkl. Telegram)
+                // Benachrichtigungseinstellungen speichern (inkl. SMTP + Telegram)
                 try {
                     $notificationSettings = [
                         'email_notifications' => isset($_POST['email_notifications']),
@@ -484,15 +484,43 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                         'cost_alert_enabled' => isset($_POST['cost_alert_enabled']),
                         'cost_alert_threshold' => max(10, (float)($_POST['cost_alert_threshold'] ?? 100)),
                         
+                        // SMTP-Einstellungen (NEU)
+                        'smtp_enabled' => isset($_POST['smtp_enabled']),
+                        'smtp_host' => trim($_POST['smtp_host'] ?? ''),
+                        'smtp_port' => max(1, min(65535, (int)($_POST['smtp_port'] ?? 587))),
+                        'smtp_encryption' => $_POST['smtp_encryption'] ?? 'tls',
+                        'smtp_username' => trim($_POST['smtp_username'] ?? ''),
+                        'smtp_password' => trim($_POST['smtp_password'] ?? ''),
+                        'smtp_from_email' => trim($_POST['smtp_from_email'] ?? ''),
+                        'smtp_from_name' => trim($_POST['smtp_from_name'] ?? 'Stromtracker'),
+                        
                         // Telegram-Einstellungen
                         'telegram_enabled' => isset($_POST['telegram_enabled']),
                         'telegram_chat_id' => trim($_POST['telegram_chat_id'] ?? '')
                     ];
                     
+                    // SMTP-Validierung
+                    if ($notificationSettings['smtp_enabled']) {
+                        if (empty($notificationSettings['smtp_host'])) {
+                            Flash::error('SMTP-Server ist erforderlich wenn SMTP aktiviert ist.');
+                            break;
+                        }
+                        if (empty($notificationSettings['smtp_username'])) {
+                            Flash::error('SMTP-Benutzername ist erforderlich.');
+                            break;
+                        }
+                        // Passwort nur prüfen wenn neu eingegeben (nicht ******** Platzhalter)
+                        $currentSettings = NotificationManager::getUserSettings($userId);
+                        if (empty($notificationSettings['smtp_password']) && empty($currentSettings['smtp_password'])) {
+                            Flash::error('SMTP-Passwort ist erforderlich.');
+                            break;
+                        }
+                    }
+                    
                     // TABELLEN-EXISTENZ PRÜFEN
                     $tableExists = Database::fetchOne("SHOW TABLES LIKE 'notification_settings'");
                     if (!$tableExists) {
-                        Flash::error('❌ KRITISCH: Datenbanktabellen fehlen! Führen Sie sql/telegram-setup.sql aus.');
+                        Flash::error('❌ KRITISCH: Datenbanktabellen fehlen! Führen Sie sql/telegram-setup.sql und sql/add-smtp-settings.sql aus.');
                         break;
                     }
                     
@@ -619,12 +647,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                         break;
                     }
                     
-                    // Code als verwendet markieren
+                    // Code als verwendet markieren (FIX: nur den spezifischen Code, nicht alle)
                     Database::update(
                         'telegram_log',
                         ['status' => 'used'],
-                        'user_id = ? AND message_type = ? AND status = ?',
-                        [$userId, 'verification', 'pending']
+                        'id = ?',
+                        [$storedCodeRecord['id']]
                     );
                     
                     // Chat-ID als verifiziert UND aktiviert markieren
@@ -714,6 +742,49 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     Flash::error('Test fehlgeschlagen: ' . $e->getMessage());
                 }
                 break;
+                
+            case 'test_smtp':
+                // SMTP-Verbindung testen (NEU)
+                try {
+                    $result = NotificationManager::testSMTPConnection($userId);
+                    
+                    if ($result['success']) {
+                        Flash::success('✓ ' . $result['message']);
+                    } else {
+                        Flash::error('✗ SMTP-Test fehlgeschlagen: ' . $result['error']);
+                    }
+                    
+                } catch (Exception $e) {
+                    Flash::error('Fehler beim SMTP-Test: ' . $e->getMessage());
+                }
+                break;
+                
+            case 'send_test_email':
+                // Test-E-Mail senden (NEU)
+                try {
+                    $result = NotificationManager::sendTestEmail(
+                        $user['email'],
+                        $user['name'],
+                        $userId
+                    );
+                    
+                    if ($result['success']) {
+                        Flash::success('✓ Test-E-Mail erfolgreich gesendet! Prüfen Sie Ihr Postfach (auch Spam).');
+                    } else {
+                        $errorMsg = 'Test-E-Mail fehlgeschlagen';
+                        if ($result['error']) {
+                            $errorMsg .= ': ' . $result['error'];
+                        }
+                        if (!$result['info']['phpmailer_available'] && $notificationSettings['smtp_enabled']) {
+                            $errorMsg .= ' - PHPMailer nicht installiert!';
+                        }
+                        Flash::error('✗ ' . $errorMsg);
+                    }
+                    
+                } catch (Exception $e) {
+                    Flash::error('Fehler: ' . $e->getMessage());
+                }
+                break;
         }
     }
     
@@ -726,8 +797,14 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 // DATA LOADING (erweitert um Telegram)
 // =============================================================================
 
-// User-Daten laden (mit API-Key)
-$userData = Database::fetchOne("SELECT * FROM users WHERE id = ?", [$userId]) ?: [];
+// User-Daten laden (mit API-Key) - mit Fehlerbehandlung
+$userData = Database::fetchOne("SELECT * FROM users WHERE id = ?", [$userId]);
+if (!$userData) {
+    Flash::error('Kritischer Fehler: Benutzerdaten nicht gefunden.');
+    Auth::logout();
+    header('Location: login.php');
+    exit;
+}
 $userApiKey = $userData['api_key'] ?? null;
 
 // Benachrichtigungseinstellungen laden (inkl. Telegram)
@@ -908,7 +985,7 @@ include 'includes/navbar.php';
                         </div>
                         <div class="card-body">
                             <form method="POST">
-                                <input type="hidden" name="csrf_token" value="<?= $csrfToken ?>">
+                                <input type="hidden" name="csrf_token" value="<?= htmlspecialchars($csrfToken) ?>">
                                 <input type="hidden" name="action" value="update_profile">
                                 
                                 <div class="row">
@@ -1005,7 +1082,7 @@ include 'includes/navbar.php';
                             
                             <!-- Einstellungs-Form -->
                             <form method="POST" id="notificationSettingsForm">
-                                <input type="hidden" name="csrf_token" value="<?= $csrfToken ?>">
+                                <input type="hidden" name="csrf_token" value="<?= htmlspecialchars($csrfToken) ?>">
                                 <input type="hidden" name="action" value="update_notifications">
                                 
                                 <h6>📧 E-Mail Benachrichtigungen</h6>
@@ -1014,6 +1091,7 @@ include 'includes/navbar.php';
                                         <div class="form-check">
                                             <input type="checkbox" class="form-check-input" 
                                                    id="email_notifications" name="email_notifications"
+                                                   onchange="toggleEmailSMTPSection(this.checked)"
                                                    <?= $notificationSettings['email_notifications'] ? 'checked' : '' ?>>
                                             <label class="form-check-label" for="email_notifications">
                                                 <i class="bi bi-envelope-at"></i> E-Mail-Benachrichtigungen aktivieren
@@ -1022,6 +1100,215 @@ include 'includes/navbar.php';
                                         <small class="text-muted">Klassische E-Mail-Benachrichtigungen</small>
                                     </div>
                                 </div>
+                                
+                                <!-- SMTP-Server Konfiguration (NEU) -->
+                                <!-- Immer rendern, aber nur anzeigen wenn E-Mail aktiviert ist -->
+                                <div id="smtp-configuration-wrapper" style="display: <?= $notificationSettings['email_notifications'] ? 'block' : 'none' ?>;">
+                                <hr>
+                                <div class="card bg-light mt-3">
+                                    <div class="card-header">
+                                        <h6 class="mb-0">
+                                            <i class="bi bi-server"></i> SMTP-Server Konfiguration
+                                            <span class="badge <?= $notificationSettings['smtp_enabled'] ? 'bg-success' : 'bg-secondary' ?> ms-2">
+                                                <?= $notificationSettings['smtp_enabled'] ? 'Aktiviert' : 'Deaktiviert' ?>
+                                            </span>
+                                        </h6>
+                                    </div>
+                                    <div class="card-body">
+                                        
+                                        <!-- Info-Alert -->
+                                        <div class="alert <?= $notificationSettings['smtp_enabled'] ? 'alert-info' : 'alert-warning' ?>">
+                                            <i class="bi bi-info-circle"></i>
+                                            <?php if ($notificationSettings['smtp_enabled']): ?>
+                                                <strong>SMTP aktiviert:</strong> E-Mails werden über Ihren konfigurierten SMTP-Server versendet.
+                                            <?php else: ?>
+                                                <strong>Standard-Versand:</strong> E-Mails werden über PHP mail() versendet. 
+                                                Für zuverlässigeren Versand empfehlen wir SMTP-Konfiguration.
+                                            <?php endif; ?>
+                                        </div>
+                                        
+                                        <!-- SMTP Aktivieren -->
+                                        <div class="form-check form-switch mb-3">
+                                            <input class="form-check-input" type="checkbox" 
+                                                   id="smtp_enabled" name="smtp_enabled"
+                                                   <?= $notificationSettings['smtp_enabled'] ? 'checked' : '' ?>
+                                                   onchange="toggleSMTPFields(this.checked)">
+                                            <label class="form-check-label" for="smtp_enabled">
+                                                <strong>SMTP verwenden</strong>
+                                            </label>
+                                        </div>
+                                        
+                                        <!-- SMTP-Felder -->
+                                        <div id="smtp-fields" style="display: <?= $notificationSettings['smtp_enabled'] ? 'block' : 'none' ?>;">
+                                            
+                                            <div class="row mb-3">
+                                                <div class="col-md-8">
+                                                    <label for="smtp_host" class="form-label">
+                                                        SMTP Server <span class="text-danger">*</span>
+                                                    </label>
+                                                    <input type="text" class="form-control" 
+                                                           id="smtp_host" name="smtp_host"
+                                                           placeholder="smtp.gmail.com oder smtp.sendgrid.net"
+                                                           value="<?= htmlspecialchars($notificationSettings['smtp_host'] ?? '') ?>">
+                                                    <small class="text-muted">
+                                                        Hostname Ihres SMTP-Servers (z.B. smtp.gmail.com, smtp.strato.de)
+                                                    </small>
+                                                </div>
+                                                <div class="col-md-4">
+                                                    <label for="smtp_port" class="form-label">
+                                                        Port <span class="text-danger">*</span>
+                                                    </label>
+                                                    <input type="number" class="form-control" 
+                                                           id="smtp_port" name="smtp_port"
+                                                           min="1" max="65535"
+                                                           value="<?= (int)($notificationSettings['smtp_port'] ?? 587) ?>">
+                                                    <small class="text-muted">
+                                                        Standard: 587 (TLS) oder 465 (SSL)
+                                                    </small>
+                                                </div>
+                                            </div>
+                                            
+                                            <div class="row mb-3">
+                                                <div class="col-md-6">
+                                                    <label for="smtp_encryption" class="form-label">
+                                                        Verschlüsselung <span class="text-danger">*</span>
+                                                    </label>
+                                                    <select class="form-select" id="smtp_encryption" name="smtp_encryption">
+                                                        <option value="tls" <?= ($notificationSettings['smtp_encryption'] ?? 'tls') === 'tls' ? 'selected' : '' ?>>
+                                                            TLS (empfohlen)
+                                                        </option>
+                                                        <option value="ssl" <?= ($notificationSettings['smtp_encryption'] ?? '') === 'ssl' ? 'selected' : '' ?>>
+                                                            SSL
+                                                        </option>
+                                                        <option value="none" <?= ($notificationSettings['smtp_encryption'] ?? '') === 'none' ? 'selected' : '' ?>>
+                                                            Keine (nicht empfohlen)
+                                                        </option>
+                                                    </select>
+                                                </div>
+                                            </div>
+                                            
+                                            <div class="row mb-3">
+                                                <div class="col-md-6">
+                                                    <label for="smtp_username" class="form-label">
+                                                        Benutzername/E-Mail <span class="text-danger">*</span>
+                                                    </label>
+                                                    <input type="text" class="form-control" 
+                                                           id="smtp_username" name="smtp_username"
+                                                           placeholder="deine@email.com"
+                                                           autocomplete="username"
+                                                           value="<?= htmlspecialchars($notificationSettings['smtp_username'] ?? '') ?>">
+                                                    <small class="text-muted">
+                                                        SMTP-Benutzername (meistens Ihre E-Mail-Adresse)
+                                                    </small>
+                                                </div>
+                                                <div class="col-md-6">
+                                                    <label for="smtp_password" class="form-label">
+                                                        Passwort <span class="text-danger">*</span>
+                                                    </label>
+                                                    <input type="password" class="form-control" 
+                                                           id="smtp_password" name="smtp_password"
+                                                           placeholder="<?= !empty($notificationSettings['smtp_password']) ? '********' : 'SMTP-Passwort oder App-Passwort' ?>"
+                                                           autocomplete="current-password">
+                                                    <small class="text-muted">
+                                                        <?php if (!empty($notificationSettings['smtp_password'])): ?>
+                                                            ✓ Gespeichert - Leer lassen um beizubehalten
+                                                        <?php else: ?>
+                                                            Für Gmail: App-Passwort verwenden!
+                                                        <?php endif; ?>
+                                                    </small>
+                                                </div>
+                                            </div>
+                                            
+                                            <div class="row mb-3">
+                                                <div class="col-md-6">
+                                                    <label for="smtp_from_email" class="form-label">
+                                                        Absender E-Mail
+                                                    </label>
+                                                    <input type="email" class="form-control" 
+                                                           id="smtp_from_email" name="smtp_from_email"
+                                                           placeholder="noreply@deine-domain.de"
+                                                           value="<?= htmlspecialchars($notificationSettings['smtp_from_email'] ?? '') ?>">
+                                                    <small class="text-muted">
+                                                        Optional - Standard: SMTP-Benutzername
+                                                    </small>
+                                                </div>
+                                                <div class="col-md-6">
+                                                    <label for="smtp_from_name" class="form-label">
+                                                        Absender Name
+                                                    </label>
+                                                    <input type="text" class="form-control" 
+                                                           id="smtp_from_name" name="smtp_from_name"
+                                                           placeholder="Stromtracker"
+                                                           value="<?= htmlspecialchars($notificationSettings['smtp_from_name'] ?? 'Stromtracker') ?>">
+                                                    <small class="text-muted">
+                                                        Optional - Anzeigename des Absenders
+                                                    </small>
+                                                </div>
+                                            </div>
+                                            
+                                            <!-- Beliebte Provider-Vorlagen -->
+                                            <div class="alert alert-light">
+                                                <strong><i class="bi bi-lightning-charge"></i> Schnell-Konfiguration:</strong>
+                                                <div class="btn-group btn-group-sm mt-2" role="group">
+                                                    <button type="button" class="btn btn-outline-primary" onclick="applySMTPTemplate('gmail')">
+                                                        📧 Gmail
+                                                    </button>
+                                                    <button type="button" class="btn btn-outline-primary" onclick="applySMTPTemplate('sendgrid')">
+                                                        📨 SendGrid
+                                                    </button>
+                                                    <button type="button" class="btn btn-outline-primary" onclick="applySMTPTemplate('office365')">
+                                                        📬 Office 365
+                                                    </button>
+                                                    <button type="button" class="btn btn-outline-primary" onclick="applySMTPTemplate('yahoo')">
+                                                        📮 Yahoo
+                                                    </button>
+                                                </div>
+                                            </div>
+                                            
+                                            <!-- PHPMailer Status -->
+                                            <?php 
+                                            // Prüfen ob Methode verfügbar ist (Fallback für ältere NotificationManager Versionen)
+                                            $phpMailerAvailable = method_exists('NotificationManager', 'isPHPMailerAvailable') 
+                                                ? NotificationManager::isPHPMailerAvailable() 
+                                                : class_exists('PHPMailer\PHPMailer\PHPMailer');
+                                            ?>
+                                            <div class="alert <?= $phpMailerAvailable ? 'alert-success' : 'alert-danger' ?>">
+                                                <strong>
+                                                    <i class="bi bi-<?= $phpMailerAvailable ? 'check-circle' : 'x-circle' ?>"></i>
+                                                    PHPMailer Status:
+                                                </strong>
+                                                <?php if ($phpMailerAvailable): ?>
+                                                    ✓ Installiert - SMTP-Versand verfügbar
+                                                <?php else: ?>
+                                                    ✗ Nicht installiert
+                                                    <br><small>Führe aus: <code>composer require phpmailer/phpmailer</code></small>
+                                                <?php endif; ?>
+                                            </div>
+                                            
+                                            <!-- Test-Buttons -->
+                                            <div class="d-flex gap-2 mt-3">
+                                                <form method="POST" class="d-inline">
+                                                    <input type="hidden" name="csrf_token" value="<?= htmlspecialchars($csrfToken) ?>">
+                                                    <input type="hidden" name="action" value="test_smtp">
+                                                    <button type="submit" class="btn btn-outline-info btn-sm">
+                                                        <i class="bi bi-plug"></i> SMTP-Verbindung testen
+                                                    </button>
+                                                </form>
+                                                
+                                                <form method="POST" class="d-inline">
+                                                    <input type="hidden" name="csrf_token" value="<?= htmlspecialchars($csrfToken) ?>">
+                                                    <input type="hidden" name="action" value="send_test_email">
+                                                    <button type="submit" class="btn btn-outline-primary btn-sm">
+                                                        <i class="bi bi-envelope-check"></i> Test-E-Mail senden
+                                                    </button>
+                                                </form>
+                                            </div>
+                                            
+                                        </div>
+                                        
+                                    </div>
+                                </div>
+                                </div><!-- Ende smtp-configuration-wrapper -->
                                 
                                 <?php if ($telegramEnabled): ?>
                                 <hr>
@@ -1055,7 +1342,7 @@ include 'includes/navbar.php';
                                             </button>
                                         </div>
                                         <small class="text-muted">
-                                            Starten Sie @<?= $telegramBotInfo['username'] ?? 'ihren_bot' ?> in Telegram
+                                            Starten Sie @<?= is_array($telegramBotInfo) && isset($telegramBotInfo['username']) ? htmlspecialchars($telegramBotInfo['username']) : 'ihren_bot' ?> in Telegram
                                         </small>
                                     </div>
                                 </div>
@@ -1179,7 +1466,7 @@ include 'includes/navbar.php';
                                                         <i class="bi bi-pencil"></i> Ändern
                                                     </button>
                                                     <form method="POST" class="d-inline">
-                                                        <input type="hidden" name="csrf_token" value="<?= $csrfToken ?>">
+                                                        <input type="hidden" name="csrf_token" value="<?= htmlspecialchars($csrfToken) ?>">
                                                         <input type="hidden" name="action" value="telegram_remove_bot">
                                                         <button type="submit" class="btn btn-sm btn-outline-danger"
                                                                 onclick="return confirm('Bot-Token wirklich entfernen?')">
@@ -1200,7 +1487,7 @@ include 'includes/navbar.php';
                                         <?php endif; ?>
                                         
                                             <form method="POST">
-                                                <input type="hidden" name="csrf_token" value="<?= $csrfToken ?>">
+                                                <input type="hidden" name="csrf_token" value="<?= htmlspecialchars($csrfToken) ?>">
                                                 <input type="hidden" name="action" value="telegram_save_bot">
                                                 
                                                 <div class="row">
@@ -1239,7 +1526,7 @@ include 'includes/navbar.php';
                                     <div class="row">
                                         <div class="col-md-6">
                                             <form method="POST" class="d-inline">
-                                                <input type="hidden" name="csrf_token" value="<?= $csrfToken ?>">
+                                                <input type="hidden" name="csrf_token" value="<?= htmlspecialchars($csrfToken) ?>">
                                                 <input type="hidden" name="action" value="telegram_verify">
                                                 <input type="hidden" name="telegram_chat_id" value="<?= htmlspecialchars($notificationSettings['telegram_chat_id']) ?>">
                                                 <button type="submit" class="btn btn-primary">
@@ -1249,7 +1536,7 @@ include 'includes/navbar.php';
                                         </div>
                                         <div class="col-md-6">
                                             <form method="POST" class="d-inline">
-                                                <input type="hidden" name="csrf_token" value="<?= $csrfToken ?>">
+                                                <input type="hidden" name="csrf_token" value="<?= htmlspecialchars($csrfToken) ?>">
                                                 <input type="hidden" name="action" value="telegram_confirm">
                                                 <div class="input-group">
                                                     <input type="text" class="form-control" name="verification_code"
@@ -1270,7 +1557,7 @@ include 'includes/navbar.php';
                                     <h6><i class="bi bi-check-circle"></i> Telegram ist bereit!</h6>
                                     <p class="mb-2">Ihre Telegram-Benachrichtigungen sind aktiv und verifiziert.</p>
                                     <form method="POST" class="d-inline">
-                                        <input type="hidden" name="csrf_token" value="<?= $csrfToken ?>">
+                                        <input type="hidden" name="csrf_token" value="<?= htmlspecialchars($csrfToken) ?>">
                                         <input type="hidden" name="action" value="telegram_test">
                                         <button type="submit" class="btn btn-outline-primary btn-sm">
                                             <i class="bi bi-chat-dots"></i> Test-Nachricht senden
@@ -1289,7 +1576,7 @@ include 'includes/navbar.php';
                                         <?php if (isset($notificationStats['counts']['email'])): ?>
                                         <div class="col-md-2">
                                             <div class="text-center">
-                                                <div class="fs-5 text-primary"><?= $notificationStats['counts']['email']['sent'] ?></div>
+                                                <div class="fs-5 text-primary"><?= htmlspecialchars($notificationStats['counts']['email']['sent'] ?? '0') ?></div>
                                                 <small>📧 E-Mail</small>
                                             </div>
                                         </div>
@@ -1297,26 +1584,26 @@ include 'includes/navbar.php';
                                         <?php if (isset($notificationStats['counts']['telegram'])): ?>
                                         <div class="col-md-2">
                                             <div class="text-center">
-                                                <div class="fs-5 text-info"><?= $notificationStats['counts']['telegram']['sent'] ?></div>
+                                                <div class="fs-5 text-info"><?= htmlspecialchars($notificationStats['counts']['telegram']['sent'] ?? '0') ?></div>
                                                 <small>📱 Telegram</small>
                                             </div>
                                         </div>
                                         <?php endif; ?>
                                         <div class="col-md-2">
                                             <div class="text-center">
-                                                <div class="fs-5 text-success"><?= $notificationStats['counts']['sent'] ?></div>
+                                                <div class="fs-5 text-success"><?= htmlspecialchars($notificationStats['counts']['sent'] ?? '0') ?></div>
                                                 <small>Gesendet</small>
                                             </div>
                                         </div>
                                         <div class="col-md-2">
                                             <div class="text-center">
-                                                <div class="fs-5 text-danger"><?= $notificationStats['counts']['failed'] ?></div>
+                                                <div class="fs-5 text-danger"><?= htmlspecialchars($notificationStats['counts']['failed'] ?? '0') ?></div>
                                                 <small>Fehlgeschlagen</small>
                                             </div>
                                         </div>
                                         <div class="col-md-2">
                                             <div class="text-center">
-                                                <div class="fs-5 text-muted"><?= $notificationStats['counts']['total'] ?></div>
+                                                <div class="fs-5 text-muted"><?= htmlspecialchars($notificationStats['counts']['total'] ?? '0') ?></div>
                                                 <small>Gesamt</small>
                                             </div>
                                         </div>
@@ -1362,7 +1649,7 @@ include 'includes/navbar.php';
                                                  style="width: 200px; height: 200px; object-fit: cover;">
                                             <div class="mt-2">
                                                 <form method="POST" class="d-inline">
-                                                    <input type="hidden" name="csrf_token" value="<?= $csrfToken ?>">
+                                                    <input type="hidden" name="csrf_token" value="<?= htmlspecialchars($csrfToken) ?>">
                                                     <input type="hidden" name="action" value="delete_image">
                                                     <button type="submit" class="btn btn-outline-danger btn-sm"
                                                             onclick="return confirm('Profilbild wirklich löschen?')">
@@ -1386,7 +1673,7 @@ include 'includes/navbar.php';
                                 <div class="col-md-12">
                                     <h6>Neues Profilbild hochladen</h6>
                                     <form method="POST" enctype="multipart/form-data">
-                                        <input type="hidden" name="csrf_token" value="<?= $csrfToken ?>">
+                                        <input type="hidden" name="csrf_token" value="<?= htmlspecialchars($csrfToken) ?>">
                                         <input type="hidden" name="action" value="upload_image">
                                         
                                         <div class="mb-3">
@@ -1437,7 +1724,7 @@ include 'includes/navbar.php';
                             </div>
                             
                             <form method="POST">
-                                <input type="hidden" name="csrf_token" value="<?= $csrfToken ?>">
+                                <input type="hidden" name="csrf_token" value="<?= htmlspecialchars($csrfToken) ?>">
                                 <input type="hidden" name="action" value="change_password">
                                 
                                 <div class="row">
@@ -1617,7 +1904,7 @@ include 'includes/navbar.php';
                                 <div class="row g-2">
                                     <div class="col-md-6">
                                         <form method="POST" class="d-inline">
-                                            <input type="hidden" name="csrf_token" value="<?= $csrfToken ?>">
+                                            <input type="hidden" name="csrf_token" value="<?= htmlspecialchars($csrfToken) ?>">
                                             <input type="hidden" name="action" value="generate_api_key">
                                             <button type="submit" class="btn btn-warning w-100"
                                                     onclick="return confirm('Neuen API-Key generieren?\n\nDer alte Key wird ungültig!')">
@@ -1627,7 +1914,7 @@ include 'includes/navbar.php';
                                     </div>
                                     <div class="col-md-6">
                                         <form method="POST" class="d-inline">
-                                            <input type="hidden" name="csrf_token" value="<?= $csrfToken ?>">
+                                            <input type="hidden" name="csrf_token" value="<?= htmlspecialchars($csrfToken) ?>">
                                             <input type="hidden" name="action" value="delete_api_key">
                                             <button type="submit" class="btn btn-danger w-100"
                                                     onclick="return confirm('API-Key wirklich löschen?\n\nDie Tasmota-Integration wird deaktiviert!')">
@@ -1645,7 +1932,7 @@ include 'includes/navbar.php';
                                 <p>Generieren Sie einen API-Key für die automatische Datenübertragung von Tasmota-Geräten.</p>
                                 
                                 <form method="POST">
-                                    <input type="hidden" name="csrf_token" value="<?= $csrfToken ?>">
+                                    <input type="hidden" name="csrf_token" value="<?= htmlspecialchars($csrfToken) ?>">
                                     <input type="hidden" name="action" value="generate_api_key">
                                     <button type="submit" class="btn btn-success">
                                         <i class="bi bi-plus-circle"></i> API-Key Generieren
@@ -1681,7 +1968,7 @@ include 'includes/navbar.php';
                         <h6>📱 Schritt 1: Bot starten</h6>
                         <ol>
                             <li>Öffnen Sie Telegram</li>
-                            <li>Suchen Sie nach: <code>@<?= $telegramBotInfo['username'] ?? 'stromtracker_bot' ?></code></li>
+                            <li>Suchen Sie nach: <code>@<?= is_array($telegramBotInfo) && isset($telegramBotInfo['username']) ? htmlspecialchars($telegramBotInfo['username']) : 'stromtracker_bot' ?></code></li>
                             <li>Starten Sie den Chat mit <code>/start</code></li>
                             <li>Der Bot zeigt Ihre Chat-ID an</li>
                         </ol>
@@ -1722,12 +2009,14 @@ include 'includes/navbar.php';
                     </div>
                 </div>
                 
-                <?php if ($telegramBotInfo): ?>
+                <?php if (is_array($telegramBotInfo) && isset($telegramBotInfo['username'])): ?>
                 <div class="alert alert-info">
                     <strong>📱 Bot-Informationen:</strong><br>
-                    <strong>Username:</strong> @<?= $telegramBotInfo['username'] ?><br>
-                    <strong>Name:</strong> <?= $telegramBotInfo['first_name'] ?><br>
-                    <a href="https://t.me/<?= $telegramBotInfo['username'] ?>" target="_blank" class="btn btn-info btn-sm">
+                    <strong>Username:</strong> @<?= htmlspecialchars($telegramBotInfo['username']) ?><br>
+                    <?php if (isset($telegramBotInfo['first_name'])): ?>
+                    <strong>Name:</strong> <?= htmlspecialchars($telegramBotInfo['first_name']) ?><br>
+                    <?php endif; ?>
+                    <a href="https://t.me/<?= htmlspecialchars($telegramBotInfo['username']) ?>" target="_blank" class="btn btn-info btn-sm">
                         <i class="bi bi-telegram"></i> Bot in Telegram öffnen
                     </a>
                 </div>
@@ -1834,10 +2123,10 @@ function showToast(message, type = 'info') {
     });
 }
 
-// Telegram Chat-ID Validierung
+// Telegram Chat-ID Validierung (konsistent mit Server: 5-15 Stellen)
 function validateTelegramChatId(input) {
     const chatId = input.value.trim();
-    const isValid = /^-?\d+$/.test(chatId) && chatId.length >= 5;
+    const isValid = /^-?\d{5,15}$/.test(chatId);
     
     if (chatId && !isValid) {
         input.classList.add('is-invalid');
@@ -1849,7 +2138,7 @@ function validateTelegramChatId(input) {
             input.parentNode.appendChild(feedback);
         }
         
-        feedback.textContent = 'Ungültige Chat-ID. Nur Zahlen erlaubt.';
+        feedback.textContent = 'Ungültige Chat-ID. Nur Zahlen erlaubt (5-15 Stellen).';
     } else {
         input.classList.remove('is-invalid');
         const feedback = input.parentNode.querySelector('.invalid-feedback');
@@ -1868,4 +2157,77 @@ document.addEventListener('DOMContentLoaded', function() {
         });
     }
 });
+
+// SMTP-Felder ein-/ausblenden (NEU)
+function toggleSMTPFields(enabled) {
+    const smtpFields = document.getElementById('smtp-fields');
+    if (smtpFields) {
+        smtpFields.style.display = enabled ? 'block' : 'none';
+    }
+}
+
+// E-Mail-SMTP-Sektion ein-/ausblenden (NEU)
+function toggleEmailSMTPSection(enabled) {
+    const smtpWrapper = document.getElementById('smtp-configuration-wrapper');
+    if (smtpWrapper) {
+        smtpWrapper.style.display = enabled ? 'block' : 'none';
+    }
+    
+    // Wenn E-Mail deaktiviert wird, auch SMTP deaktivieren
+    if (!enabled) {
+        const smtpCheckbox = document.getElementById('smtp_enabled');
+        if (smtpCheckbox && smtpCheckbox.checked) {
+            smtpCheckbox.checked = false;
+            toggleSMTPFields(false);
+        }
+    }
+}
+
+// SMTP-Provider Vorlagen (NEU)
+function applySMTPTemplate(provider) {
+    const templates = {
+        gmail: {
+            host: 'smtp.gmail.com',
+            port: 587,
+            encryption: 'tls',
+            info: '📧 Gmail:\n\n1. Aktiviere 2-Faktor-Authentifizierung\n2. Erstelle App-Passwort: https://myaccount.google.com/apppasswords\n3. Verwende das 16-stellige App-Passwort'
+        },
+        sendgrid: {
+            host: 'smtp.sendgrid.net',
+            port: 587,
+            encryption: 'tls',
+            username: 'apikey',
+            info: '📨 SendGrid:\n\n1. Registriere bei sendgrid.com (kostenlos 100 E-Mails/Tag)\n2. Erstelle API-Key\n3. Username ist "apikey"\n4. Passwort ist dein SendGrid API-Key'
+        },
+        office365: {
+            host: 'smtp.office365.com',
+            port: 587,
+            encryption: 'tls',
+            info: '📬 Office 365:\n\nVerwende deine vollständige Office 365 E-Mail-Adresse als Benutzername.'
+        },
+        yahoo: {
+            host: 'smtp.mail.yahoo.com',
+            port: 465,
+            encryption: 'ssl',
+            info: '📮 Yahoo:\n\n1. Erstelle App-Passwort: https://login.yahoo.com/account/security\n2. Verwende das App-Passwort (nicht dein normales Passwort)'
+        }
+    };
+    
+    const template = templates[provider];
+    if (!template) return;
+    
+    document.getElementById('smtp_host').value = template.host;
+    document.getElementById('smtp_port').value = template.port;
+    document.getElementById('smtp_encryption').value = template.encryption;
+    
+    if (template.username) {
+        document.getElementById('smtp_username').value = template.username;
+    }
+    
+    if (template.info) {
+        alert(template.info);
+    }
+    
+    showToast(provider.toUpperCase() + ' Vorlage angewendet!', 'success');
+}
 </script>

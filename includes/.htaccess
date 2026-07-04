@@ -1,0 +1,8 @@
+# includes/ enthält nur PHP-Includes (Header, Handler, Manager) – nie direkt per URL aufrufbar.
+<IfModule mod_authz_core.c>
+    Require all denied
+</IfModule>
+<IfModule !mod_authz_core.c>
+    Order allow,deny
+    Deny from all
+</IfModule>

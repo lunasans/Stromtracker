@@ -1,0 +1,33 @@
+# .htaccess (Projekt-Root)
+# Schützt sensible Dateien vor direktem Web-Zugriff.
+# Hinweis: Wirkt nur unter Apache. Bei nginx müssen entsprechende
+# location-Regeln in der Server-Config gesetzt werden.
+
+# --- Versteckte Dateien (.env, .git, .htaccess, .gitignore, ...) blockieren ---
+<IfModule mod_authz_core.c>
+    # Apache 2.4+
+    <FilesMatch "^\.">
+        Require all denied
+    </FilesMatch>
+</IfModule>
+<IfModule !mod_authz_core.c>
+    # Apache 2.2
+    <FilesMatch "^\.">
+        Order allow,deny
+        Deny from all
+    </FilesMatch>
+</IfModule>
+
+# --- .env explizit blockieren (zur Sicherheit, auch Varianten wie .env.example) ---
+<FilesMatch "^\.env">
+    <IfModule mod_authz_core.c>
+        Require all denied
+    </IfModule>
+    <IfModule !mod_authz_core.c>
+        Order allow,deny
+        Deny from all
+    </IfModule>
+</FilesMatch>
+
+# --- Verzeichnis-Listing deaktivieren ---
+Options -Indexes

@@ -9,9 +9,8 @@ error_reporting(E_ALL);
 ini_set('log_errors', 1);
 
 header('Content-Type: application/json');
-header('Access-Control-Allow-Origin: *');
-header('Access-Control-Allow-Methods: POST');
-header('Access-Control-Allow-Headers: Content-Type');
+// Kein CORS-Wildcard: Dieser Endpoint wird server-zu-server (Tasmota-Collector)
+// aufgerufen und ist nicht für Browser-Cross-Origin-Zugriffe bestimmt.
 
 // Logs-Ordner erstellen
 $logsDir = '../logs';
@@ -193,7 +192,8 @@ class TasmotaWebReceiver {
         
         $energyData = $deviceData['energy_data'] ?? $deviceData;
         if (isset($energyData['power']) && $energyData['power'] > 0) {
-            $updateData['wattage'] = max(1, (int)$energyData['power']);
+            // Kaufmännisch runden statt abschneiden (12,7 W -> 13 statt 12)
+            $updateData['wattage'] = max(1, (int) round((float) $energyData['power']));
         }
         
         Database::update('devices', $updateData, 'id = ?', [$deviceId]);
@@ -302,12 +302,23 @@ class TasmotaWebReceiver {
         ];
         
         $deviceId = Database::insert('devices', $deviceData);
-        
+
         if ($deviceId) {
             debugLog("New device created", ['device_id' => $deviceId]);
             return Database::fetchOne("SELECT * FROM devices WHERE id = ?", [$deviceId]);
         }
-        
+
+        // Insert fehlgeschlagen: evtl. hat ein paralleler Request das Gerät bereits
+        // angelegt (Race Condition). Erneut nach Name suchen, bevor wir aufgeben.
+        $device = Database::fetchOne(
+            "SELECT * FROM devices WHERE user_id = ? AND name = ?",
+            [$userId, $deviceName]
+        );
+        if ($device) {
+            debugLog("Device created concurrently, re-fetched by name", ['device_id' => $device['id']]);
+            return $device;
+        }
+
         debugLog("ERROR: Failed to create device");
         return null;
     }

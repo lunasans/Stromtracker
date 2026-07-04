@@ -78,7 +78,35 @@ try {
         echo json_encode(['error' => 'Method not allowed']);
         exit;
     }
-    
+
+    // =====================================================================
+    // SECRET-TOKEN-VALIDIERUNG (Schutz gegen gefälschte Webhook-Requests)
+    // =====================================================================
+    // Erwarteten Token aus der Telegram-Konfiguration lesen.
+    $expectedToken = null;
+    if (class_exists('Database')) {
+        $cfg = Database::fetchOne(
+            "SELECT webhook_token FROM telegram_config
+             WHERE is_active = 1 AND webhook_token IS NOT NULL LIMIT 1"
+        );
+        $expectedToken = $cfg['webhook_token'] ?? null;
+    }
+
+    // Von Telegram gesendeter Token: primär Header, Fallback ?token=
+    $providedToken = $_SERVER['HTTP_X_TELEGRAM_BOT_API_SECRET_TOKEN']
+        ?? ($_GET['token'] ?? '');
+
+    // Fail closed: ohne konfigurierten oder passenden Token wird abgewiesen.
+    if (empty($expectedToken)
+        || !is_string($providedToken)
+        || !hash_equals($expectedToken, $providedToken)) {
+        error_log("[WEBHOOK] SECURITY: Ungültiger/fehlender Secret-Token von "
+            . ($_SERVER['REMOTE_ADDR'] ?? 'unknown'));
+        http_response_code(403);
+        echo json_encode(['ok' => false, 'error' => 'Forbidden']);
+        exit;
+    }
+
     // Webhook-Daten lesen
     $input = file_get_contents('php://input');
     if (empty($input)) {
@@ -134,16 +162,11 @@ try {
         $success = TelegramBotHandler::handleWebhook($webhookData);
     }
     
-    // Response für Telegram
+    // Response für Telegram (keine internen Details preisgeben)
     $response = [
         'ok' => true,
         'processed' => $success,
-        'timestamp' => date('c'),
-        'debug' => [
-            'handler_exists' => class_exists('TelegramBotHandler'),
-            'database_exists' => class_exists('Database'),
-            'base_path' => $basePath
-        ]
+        'timestamp' => date('c')
     ];
     
     error_log("[WEBHOOK] Processing result: " . ($success ? 'SUCCESS' : 'FAILED'));
@@ -159,18 +182,18 @@ try {
     http_response_code(200); // Wichtig: 200 für Telegram!
     echo json_encode([
         'ok' => false,
-        'error' => 'Internal error: ' . $e->getMessage(),
+        'error' => 'Internal error',
         'timestamp' => date('c')
     ]);
-    
+
 } catch (Error $e) {
     // PHP Fatal Errors abfangen
     error_log("[WEBHOOK] Fatal Error: " . $e->getMessage());
-    
+
     http_response_code(200);
     echo json_encode([
         'ok' => false,
-        'error' => 'Fatal error: ' . $e->getMessage(),
+        'error' => 'Internal error',
         'timestamp' => date('c')
     ]);
 }

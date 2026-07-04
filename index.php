@@ -16,20 +16,34 @@ $error = '';
 
 // Login-Verarbeitung
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
-    $email = trim($_POST['email'] ?? '');
-    $password = $_POST['password'] ?? '';
-
-    // Validierung
-    if (empty($email) || empty($password)) {
-        $error = 'Bitte geben Sie E-Mail und Passwort ein.';
+    // Brute-Force-Schutz: gesperrt?
+    if (LoginThrottle::isLocked()) {
+        $minutes = (int) ceil(LoginThrottle::secondsUntilUnlock() / 60);
+        $error = "Zu viele Fehlversuche. Bitte versuchen Sie es in {$minutes} Minute(n) erneut.";
+    }
+    // CSRF-Token prüfen
+    elseif (!Auth::validateCSRFToken($_POST['csrf_token'] ?? '')) {
+        $error = 'Sicherheitsprüfung fehlgeschlagen. Bitte laden Sie die Seite neu.';
     } else {
-        // Login-Versuch
-        if (Auth::login($email, $password)) {
-            Flash::success('Login erfolgreich! Willkommen zurück.');
-            header('Location: dashboard.php');
-            exit;
+        $email = trim($_POST['email'] ?? '');
+        $password = $_POST['password'] ?? '';
+
+        // Validierung
+        if (empty($email) || empty($password)) {
+            $error = 'Bitte geben Sie E-Mail und Passwort ein.';
         } else {
-            $error = 'Ungültige Anmeldedaten. Bitte versuchen Sie es erneut.';
+            // Login-Versuch
+            if (Auth::login($email, $password)) {
+                LoginThrottle::clear();
+                Flash::success('Login erfolgreich! Willkommen zurück.');
+                header('Location: dashboard.php');
+                exit;
+            } else {
+                LoginThrottle::registerFailure();
+                // Kleine Verzögerung gegen automatisiertes Durchprobieren
+                usleep(300000); // 0,3 s
+                $error = 'Ungültige Anmeldedaten. Bitte versuchen Sie es erneut.';
+            }
         }
     }
 }
@@ -543,6 +557,9 @@ if (isset($_GET['error']) && $_GET['error'] === 'login_required') {
 
                 <!-- Login Form -->
                 <form method="POST" novalidate>
+
+                    <!-- CSRF-Schutz -->
+                    <input type="hidden" name="csrf_token" value="<?= htmlspecialchars(Auth::generateCSRFToken()) ?>">
 
                     <!-- E-Mail -->
                     <div class="form-floating">

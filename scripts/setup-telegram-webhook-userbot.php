@@ -73,8 +73,11 @@ try {
     $baseUrl = "{$protocol}://{$host}";
     
     $webhookUrl = "{$baseUrl}" . dirname($_SERVER['PHP_SELF']) . "/../api/telegram-webhook.php";
-    
+
     setupLog("🎯 Webhook-URL: $webhookUrl", 'INFO');
+
+    // Gemeinsamer Secret-Token für alle Bots -> vom Webhook-Endpoint geprüft.
+    $webhookToken = bin2hex(random_bytes(32));
     
     // Schritt 3: Webhook für jeden Bot registrieren
     setupLog("🔗 Registriere Webhooks für alle Benutzer-Bots...");
@@ -135,7 +138,10 @@ try {
             $postData = http_build_query([
                 'url' => $webhookUrl,
                 'max_connections' => 40,
-                'allowed_updates' => json_encode(['message', 'callback_query'])
+                'allowed_updates' => json_encode(['message', 'callback_query']),
+                // Telegram sendet diesen Wert im Header
+                // "X-Telegram-Bot-Api-Secret-Token" zurück.
+                'secret_token' => $webhookToken
             ]);
             
             $context = stream_context_create([
@@ -191,6 +197,22 @@ try {
         usleep(500000); // 0.5 Sekunden
     }
     
+    // Secret-Token in telegram_config hinterlegen (für Webhook-Validierung)
+    if ($successCount > 0) {
+        $affected = Database::executeAndCount(
+            "UPDATE telegram_config
+             SET webhook_token = ?, webhook_url = ?, webhook_set_at = NOW()
+             WHERE is_active = 1",
+            [$webhookToken, $webhookUrl]
+        );
+        if ($affected > 0) {
+            setupLog("🔐 Secret-Token in telegram_config gespeichert", 'SUCCESS');
+        } else {
+            setupLog("⚠️ Keine aktive telegram_config-Zeile gefunden - Webhook-Validierung "
+                . "schlägt fehl, bis eine aktive Konfiguration existiert!", 'WARNING');
+        }
+    }
+
     // Schritt 4: Zusammenfassung
     echo "\n";
     setupLog("📊 SETUP-ERGEBNISSE:");

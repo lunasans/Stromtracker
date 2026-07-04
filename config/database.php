@@ -201,6 +201,15 @@ class Database {
     public static function lastInsertId() {
         return self::$pdo->lastInsertId();
     }
+
+    /**
+     * Rohes SQL ausführen (z.B. DDL für Migrationen).
+     * Wirft PDOException im Fehlerfall (bewusst, damit der Aufrufer
+     * den Fehlercode auswerten kann).
+     */
+    public static function rawExec($sql) {
+        return self::$pdo->exec($sql);
+    }
     
     /**
      * ✅ NEUE METHODE: Tabelle existiert prüfen

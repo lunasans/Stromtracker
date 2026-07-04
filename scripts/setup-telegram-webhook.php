@@ -124,7 +124,10 @@ try {
         $postData = http_build_query([
             'url' => $webhookUrl,
             'max_connections' => 40,
-            'allowed_updates' => json_encode(['message', 'callback_query'])
+            'allowed_updates' => json_encode(['message', 'callback_query']),
+            // Telegram sendet diesen Wert bei jedem Webhook im Header
+            // "X-Telegram-Bot-Api-Secret-Token" zurück -> serverseitig geprüft.
+            'secret_token' => $webhookToken
         ]);
         
         $context = stream_context_create([

@@ -1,3 +1,6 @@
+# Umgebungsspezifische Secrets (niemals committen!)
+.env
+
 roadmap.html
 backup/enhanced-animations.js
 backup/enhanced-design-system.css
@@ -14,6 +17,7 @@ hash.php
 hash.php
 uploads/profile/profile_1_1756057272.png
 logs/tasmota-debug.log
+logs/login-throttle.json
 api/logs/tasmota-api.log
 schema.json
 debug_files/

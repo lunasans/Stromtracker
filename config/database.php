@@ -8,23 +8,26 @@
 // Zeitzone für Deutschland setzen (MEZ/MESZ)
 // date_default_timezone_set('Europe/Berlin');
 
+// .env-Loader einbinden (stellt env() bereit und lädt die .env-Datei)
+require_once __DIR__ . '/env.php';
+
 // =============================================================================
-// DATENBANK-KONFIGURATION
+// DATENBANK-KONFIGURATION (aus .env, mit Fallbacks für lokale Entwicklung)
 // =============================================================================
-define('DB_HOST', 'localhost');
-define('DB_USER', 'root');
-define('DB_PASS', '123');  // Bei XAMPP standardmäßig leer
-define('DB_NAME', 'stromtracker');
-define('DB_CHARSET', 'utf8mb4');
+define('DB_HOST', env('DB_HOST', 'localhost'));
+define('DB_USER', env('DB_USER', 'root'));
+define('DB_PASS', env('DB_PASS', ''));  // Bei XAMPP standardmäßig leer
+define('DB_NAME', env('DB_NAME', 'stromtracker'));
+define('DB_CHARSET', env('DB_CHARSET', 'utf8mb4'));
 
 // =============================================================================
 // SICHERHEITS-KONFIGURATION
 // =============================================================================
-// CSRF-Token Geheimschlüssel (falls noch nicht vorhanden)
-define('CSRF_SECRET', 'stromtracker_csrf_secret_2024');
+// CSRF-Token Geheimschlüssel (aus .env)
+define('CSRF_SECRET', env('CSRF_SECRET', 'stromtracker_csrf_secret_2024'));
 
 // Session-Konfiguration
-define('SESSION_LIFETIME', 3600 * 24); // 24 Stunden
+define('SESSION_LIFETIME', (int) env('SESSION_LIFETIME', 3600 * 24)); // 24 Stunden
 
 // =============================================================================
 // DATENBANKVERBINDUNG
@@ -41,7 +44,10 @@ try {
         ]
     );
 } catch (PDOException $e) {
-    die('Datenbankverbindung fehlgeschlagen: ' . $e->getMessage());
+    // Details nur ins Log, generische Meldung an den Client (kein Info-Leak)
+    error_log('DB connection failed: ' . $e->getMessage());
+    http_response_code(500);
+    die('Datenbankverbindung fehlgeschlagen. Bitte versuchen Sie es später erneut.');
 }
 
 // =============================================================================
@@ -194,6 +200,15 @@ class Database {
      */
     public static function lastInsertId() {
         return self::$pdo->lastInsertId();
+    }
+
+    /**
+     * Rohes SQL ausführen (z.B. DDL für Migrationen).
+     * Wirft PDOException im Fehlerfall (bewusst, damit der Aufrufer
+     * den Fehlercode auswerten kann).
+     */
+    public static function rawExec($sql) {
+        return self::$pdo->exec($sql);
     }
     
     /**

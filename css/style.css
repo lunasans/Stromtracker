@@ -139,6 +139,7 @@
 
 html {
   scroll-behavior: smooth;
+  scroll-padding-top: 80px; /* Anker landen nicht unter der Sticky-Navbar */
 }
 
 body {
@@ -159,6 +160,17 @@ body {
 .main-content,
 .container-fluid {
   flex: 1;
+}
+
+/* Zentrale Inhaltsbreite: verhindert überlange Zeilen und endlos breite
+   Karten auf großen Monitoren. Gilt auch für Navbar-/Footer-Innencontainer,
+   damit alles auf derselben Inhaltsspalte ausgerichtet ist. */
+.container-fluid {
+  max-width: 1440px;
+  margin-left: auto;
+  margin-right: auto;
+  padding-left: clamp(1rem, 3vw, 2.5rem);
+  padding-right: clamp(1rem, 3vw, 2.5rem);
 }
 
 h1, h2, h3, h4, h5, h6 {
@@ -474,6 +486,14 @@ a {
   position: relative;
   box-shadow: var(--shadow-md);
   border-bottom: 1px solid rgba(148, 163, 184, 0.12);
+}
+
+/* Navbar bleibt auf dem Desktop beim Scrollen sichtbar */
+@media (min-width: 992px) {
+  .navbar {
+    position: sticky;
+    top: 0;
+  }
 }
 
 .navbar-custom {

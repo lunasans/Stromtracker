@@ -234,7 +234,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 // SETUP-CHECKS (read-only, immer angezeigt)
 // =============================================================================
 $checks = [];
-$checks[] = ['.env vorhanden', is_readable($projectRoot . '/.env')];
+$envOutside = is_readable(dirname($projectRoot) . '/.env');
+$envInside  = is_readable($projectRoot . '/.env');
+$checks[] = ['.env vorhanden' . ($envOutside ? ' (außerhalb Web-Root ✓)' : ($envInside ? ' (im Web-Root – besser eine Ebene höher!)' : '')), $envOutside || $envInside];
 $checks[] = ['logs/ beschreibbar', is_writable($projectRoot . '/logs')];
 $checks[] = ['PHP >= 8.0', version_compare(PHP_VERSION, '8.0.0', '>=')];
 $checks[] = ['DB-Verbindung', isset($pdo) && $pdo instanceof PDO];

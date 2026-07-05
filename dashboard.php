@@ -14,7 +14,11 @@ $user = $pdo->prepare("SELECT name, email FROM users WHERE id = ?");
 $user->execute([$userId]);
 $user = $user->fetch();
 
-// Aktuelles Jahr für Statistiken
+// Abrechnungszeitraum für Statistiken (Default 1.1. = Kalenderjahr)
+require_once 'includes/billing.php';
+$billingSettings = BillingPeriod::getSettings($userId);
+$billingPeriod = BillingPeriod::currentPeriod($billingSettings);
+
 $currentYear = date('Y');
 $currentMonth = date('Y-m');
 
@@ -49,13 +53,13 @@ try {
     $stats['current_month_consumption'] = $monthData['consumption'];
     $stats['current_month_cost'] = $monthData['cost'];
 
-    // Jahresverbrauch
+    // Verbrauch im aktuellen Abrechnungszeitraum
     $stmt = $pdo->prepare("
         SELECT COALESCE(SUM(consumption), 0) as consumption
-        FROM meter_readings 
-        WHERE user_id = ? AND YEAR(reading_date) = ?
+        FROM meter_readings
+        WHERE user_id = ? AND reading_date BETWEEN ? AND ?
     ");
-    $stmt->execute([$userId, $currentYear]);
+    $stmt->execute([$userId, $billingPeriod['start'], $billingPeriod['end']]);
     $stats['year_consumption'] = $stmt->fetchColumn();
 
     // Anzahl aktive Geräte
@@ -259,17 +263,17 @@ include 'includes/navbar.php';
             </div>
         </div>
 
-        <!-- Jahr -->
+        <!-- Abrechnungszeitraum -->
         <div class="col-md-3 mb-3">
             <div class="stats-card primary">
                 <div class="flex-between mb-3">
                     <i class="stats-icon bi bi-graph-up"></i>
                     <div class="small">
-                        <?= $currentYear ?>
+                        <?= $billingPeriod['label'] ?>
                     </div>
                 </div>
                 <h3><?= number_format($stats['year_consumption'], 0) ?></h3>
-                <p>kWh dieses Jahr</p>
+                <p><?= BillingPeriod::isCalendarYear($billingSettings) ? 'kWh dieses Jahr' : 'kWh im Abrechnungsjahr' ?></p>
             </div>
         </div>
 

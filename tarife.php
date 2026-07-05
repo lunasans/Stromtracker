@@ -119,6 +119,25 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     }
                 }
                 break;
+
+            case 'billing_settings':
+                // Abrechnungszeitraum-Beginn speichern
+                $billingDay = max(1, min(28, (int)($_POST['billing_start_day'] ?? 1)));
+                $billingMonth = max(1, min(12, (int)($_POST['billing_start_month'] ?? 1)));
+
+                $success = Database::update('users', [
+                    'billing_start_day' => $billingDay,
+                    'billing_start_month' => $billingMonth
+                ], 'id = ?', [$userId]);
+
+                if ($success) {
+                    Flash::success('Abrechnungszeitraum gespeichert (Beginn: ' .
+                        str_pad($billingDay, 2, '0', STR_PAD_LEFT) . '.' .
+                        str_pad($billingMonth, 2, '0', STR_PAD_LEFT) . '.).');
+                } else {
+                    Flash::error('Fehler beim Speichern des Abrechnungszeitraums (Migration ausgeführt?).');
+                }
+                break;
         }
     }
     
@@ -153,15 +172,20 @@ $stats = [
 
 // Abschlag-Analyse der letzten 12 Monate (falls vorhanden)
 $paymentAnalysis = Database::fetchAll(
-    "SELECT mr.*, tp.monthly_payment, 
+    "SELECT mr.*, tp.monthly_payment,
             (mr.total_bill - tp.monthly_payment) as payment_difference
-     FROM meter_readings mr 
+     FROM meter_readings mr
      JOIN tariff_periods tp ON DATE(mr.reading_date) BETWEEN tp.valid_from AND COALESCE(tp.valid_to, CURDATE())
      WHERE mr.user_id = ? AND mr.reading_date >= DATE_SUB(CURDATE(), INTERVAL 12 MONTH)
-     ORDER BY mr.reading_date DESC 
+     ORDER BY mr.reading_date DESC
      LIMIT 12",
     [$userId]
 ) ?: [];
+
+// Abrechnungszeitraum-Einstellungen
+require_once 'includes/billing.php';
+$billingSettings = BillingPeriod::getSettings($userId);
+$billingPeriod = BillingPeriod::currentPeriod($billingSettings);
 
 include 'includes/header.php';
 include 'includes/navbar.php';
@@ -346,6 +370,69 @@ include 'includes/navbar.php';
             </div>
         </div>
     <?php endif; ?>
+
+    <!-- Abrechnungszeitraum -->
+    <div class="row mb-4">
+        <div class="col-12">
+            <div class="card">
+                <div class="card-header">
+                    <h5 class="mb-0">
+                        <i class="bi bi-calendar-range text-energy"></i>
+                        Abrechnungszeitraum
+                    </h5>
+                </div>
+                <div class="card-body">
+                    <div class="row align-items-end g-3">
+                        <div class="col-md-5">
+                            <p class="text-muted mb-2">
+                                Beginn des jährlichen Abrechnungszeitraums (laut Stromrechnung).
+                                Auswertung und Dashboard fassen Verbrauch und Kosten pro
+                                Abrechnungsjahr statt Kalenderjahr zusammen.
+                            </p>
+                            <p class="mb-0">
+                                Aktueller Zeitraum:
+                                <strong class="text-energy"><?= $billingPeriod['label'] ?></strong>
+                                <small class="text-muted">
+                                    (<?= date('d.m.Y', strtotime($billingPeriod['start'])) ?>
+                                    – <?= date('d.m.Y', strtotime($billingPeriod['end'])) ?>)
+                                </small>
+                            </p>
+                        </div>
+                        <div class="col-md-7">
+                            <form method="POST" class="row g-2 align-items-end">
+                                <input type="hidden" name="csrf_token" value="<?= $csrfToken ?>">
+                                <input type="hidden" name="action" value="billing_settings">
+                                <div class="col-sm-4">
+                                    <label class="form-label" for="billing_start_day">Tag</label>
+                                    <select class="form-select" name="billing_start_day" id="billing_start_day">
+                                        <?php for ($d = 1; $d <= 28; $d++): ?>
+                                            <option value="<?= $d ?>" <?= $billingSettings['day'] === $d ? 'selected' : '' ?>><?= $d ?>.</option>
+                                        <?php endfor; ?>
+                                    </select>
+                                </div>
+                                <div class="col-sm-5">
+                                    <label class="form-label" for="billing_start_month">Monat</label>
+                                    <select class="form-select" name="billing_start_month" id="billing_start_month">
+                                        <?php
+                                        $monthNames = [1 => 'Januar', 'Februar', 'März', 'April', 'Mai', 'Juni',
+                                                       'Juli', 'August', 'September', 'Oktober', 'November', 'Dezember'];
+                                        foreach ($monthNames as $m => $name): ?>
+                                            <option value="<?= $m ?>" <?= $billingSettings['month'] === $m ? 'selected' : '' ?>><?= $name ?></option>
+                                        <?php endforeach; ?>
+                                    </select>
+                                </div>
+                                <div class="col-sm-3">
+                                    <button type="submit" class="btn btn-energy w-100">
+                                        <i class="bi bi-check-lg"></i> Speichern
+                                    </button>
+                                </div>
+                            </form>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
 
     <!-- Abschlag-Analyse (falls vorhanden) -->
     <?php if (!empty($paymentAnalysis)): ?>

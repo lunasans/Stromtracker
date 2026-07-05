@@ -12,18 +12,29 @@ $pageTitle = 'Auswertung & Charts - Stromtracker';
 $user = Auth::getUser();
 $userId = Auth::getUserId();
 
-// Filter-Parameter
-$selectedYear = $_GET['year'] ?? date('Y');
+// Abrechnungszeitraum-Konfiguration (Default 1.1. = Kalenderjahr)
+require_once 'includes/billing.php';
+$billingSettings = BillingPeriod::getSettings($userId);
+$isCalendarYear = BillingPeriod::isCalendarYear($billingSettings);
+$currentBillingPeriod = BillingPeriod::currentPeriod($billingSettings);
+$billingYearExpr = BillingPeriod::sqlStartYearExpr($billingSettings, 'reading_date');
+
+// Filter-Parameter ("year" = Startjahr des Abrechnungszeitraums)
+$selectedYear = $_GET['year'] ?? (string) date('Y', strtotime($currentBillingPeriod['start']));
 $selectedPeriod = $_GET['period'] ?? '12months'; // 12months, 6months, year
 
-// Verfügbare Jahre für Filter
+// Verfügbare Abrechnungszeiträume für Filter
 $availableYears = Database::fetchAll(
-    "SELECT DISTINCT YEAR(reading_date) as year 
-     FROM meter_readings 
-     WHERE user_id = ? 
+    "SELECT DISTINCT {$billingYearExpr} as year
+     FROM meter_readings
+     WHERE user_id = ?
      ORDER BY year DESC",
     [$userId]
 ) ?: [];
+foreach ($availableYears as &$y) {
+    $y['label'] = BillingPeriod::label($billingSettings, (int) $y['year']);
+}
+unset($y);
 
 // Monatliche Daten für Charts
 switch ($selectedPeriod) {
@@ -32,58 +43,96 @@ switch ($selectedPeriod) {
         break;
     case 'year':
         $monthsBack = 12;
-        $selectedYear = null; // Aktuelles Jahr
+        $selectedYear = null; // Aktueller Abrechnungszeitraum
         break;
     default:
         $monthsBack = 12;
 }
 
 if ($selectedYear && $selectedPeriod !== 'year') {
-    // Spezifisches Jahr
+    // Spezifischer Abrechnungszeitraum
+    $range = BillingPeriod::periodForStartYear($billingSettings, (int) $selectedYear);
     $chartData = Database::fetchAll(
-        "SELECT 
+        "SELECT
             DATE_FORMAT(reading_date, '%Y-%m') as month,
             DATE_FORMAT(reading_date, '%m/%Y') as month_label,
             meter_value,
             consumption,
             cost,
             rate_per_kwh
-         FROM meter_readings 
-         WHERE user_id = ? AND YEAR(reading_date) = ?
+         FROM meter_readings
+         WHERE user_id = ? AND reading_date BETWEEN ? AND ?
          ORDER BY reading_date ASC",
-        [$userId, $selectedYear]
+        [$userId, $range['start'], $range['end']]
+    ) ?: [];
+} elseif ($selectedPeriod === 'year') {
+    // Aktueller Abrechnungszeitraum
+    $chartData = Database::fetchAll(
+        "SELECT
+            DATE_FORMAT(reading_date, '%Y-%m') as month,
+            DATE_FORMAT(reading_date, '%m/%Y') as month_label,
+            meter_value,
+            consumption,
+            cost,
+            rate_per_kwh
+         FROM meter_readings
+         WHERE user_id = ? AND reading_date BETWEEN ? AND ?
+         ORDER BY reading_date ASC",
+        [$userId, $currentBillingPeriod['start'], $currentBillingPeriod['end']]
     ) ?: [];
 } else {
     // Letzte X Monate
     $chartData = Database::fetchAll(
-        "SELECT 
+        "SELECT
             DATE_FORMAT(reading_date, '%Y-%m') as month,
             DATE_FORMAT(reading_date, '%m/%Y') as month_label,
             meter_value,
             consumption,
             cost,
             rate_per_kwh
-         FROM meter_readings 
+         FROM meter_readings
          WHERE user_id = ? AND reading_date >= DATE_SUB(CURDATE(), INTERVAL ? MONTH)
          ORDER BY reading_date ASC",
         [$userId, $monthsBack]
     ) ?: [];
 }
 
-// Jahresvergleich-Daten
+// Vergleich pro Abrechnungszeitraum (Default: Kalenderjahre)
 $yearlyComparison = Database::fetchAll(
-    "SELECT 
-        YEAR(reading_date) as year,
+    "SELECT
+        {$billingYearExpr} as year,
         COUNT(*) as readings_count,
         SUM(consumption) as total_consumption,
         SUM(cost) as total_cost,
         AVG(consumption) as avg_consumption,
         MIN(consumption) as min_consumption,
         MAX(consumption) as max_consumption
-     FROM meter_readings 
+     FROM meter_readings
      WHERE user_id = ? AND consumption IS NOT NULL
-     GROUP BY YEAR(reading_date)
+     GROUP BY {$billingYearExpr}
      ORDER BY year DESC",
+    [$userId]
+) ?: [];
+foreach ($yearlyComparison as &$row) {
+    $row['label'] = BillingPeriod::label($billingSettings, (int) $row['year']);
+}
+unset($row);
+$currentBillingStartYear = (int) date('Y', strtotime($currentBillingPeriod['start']));
+
+// Vergleich pro Tarifzeitraum
+$tariffComparison = Database::fetchAll(
+    "SELECT tp.id, tp.valid_from, tp.valid_to, tp.provider_name, tp.tariff_name, tp.rate_per_kwh,
+            COUNT(mr.id) as readings_count,
+            COALESCE(SUM(mr.consumption), 0) as total_consumption,
+            COALESCE(SUM(mr.cost), 0) as total_cost
+     FROM tariff_periods tp
+     LEFT JOIN meter_readings mr
+            ON mr.user_id = tp.user_id
+           AND mr.consumption IS NOT NULL
+           AND mr.reading_date BETWEEN tp.valid_from AND COALESCE(tp.valid_to, CURDATE())
+     WHERE tp.user_id = ?
+     GROUP BY tp.id
+     ORDER BY tp.valid_from DESC",
     [$userId]
 ) ?: [];
 
@@ -141,33 +190,33 @@ $currentStats = [
     ) ?: ['consumption' => 0, 'cost' => 0],
     
     'year_total' => Database::fetchOne(
-        "SELECT SUM(consumption) as consumption, SUM(cost) as cost 
-         FROM meter_readings 
-         WHERE user_id = ? AND YEAR(reading_date) = YEAR(CURDATE())",
-        [$userId]
+        "SELECT SUM(consumption) as consumption, SUM(cost) as cost
+         FROM meter_readings
+         WHERE user_id = ? AND reading_date BETWEEN ? AND ?",
+        [$userId, $currentBillingPeriod['start'], $currentBillingPeriod['end']]
     ) ?: ['consumption' => 0, 'cost' => 0],
-    
+
     'avg_monthly' => Database::fetchOne(
-        "SELECT AVG(consumption) as consumption, AVG(cost) as cost 
-         FROM meter_readings 
-         WHERE user_id = ? AND YEAR(reading_date) = YEAR(CURDATE()) AND consumption IS NOT NULL",
-        [$userId]
+        "SELECT AVG(consumption) as consumption, AVG(cost) as cost
+         FROM meter_readings
+         WHERE user_id = ? AND reading_date BETWEEN ? AND ? AND consumption IS NOT NULL",
+        [$userId, $currentBillingPeriod['start'], $currentBillingPeriod['end']]
     ) ?: ['consumption' => 0, 'cost' => 0],
-    
+
     'highest_month' => Database::fetchOne(
-        "SELECT consumption, cost, DATE_FORMAT(reading_date, '%m/%Y') as month 
-         FROM meter_readings 
-         WHERE user_id = ? AND YEAR(reading_date) = YEAR(CURDATE()) AND consumption IS NOT NULL
+        "SELECT consumption, cost, DATE_FORMAT(reading_date, '%m/%Y') as month
+         FROM meter_readings
+         WHERE user_id = ? AND reading_date BETWEEN ? AND ? AND consumption IS NOT NULL
          ORDER BY consumption DESC LIMIT 1",
-        [$userId]
+        [$userId, $currentBillingPeriod['start'], $currentBillingPeriod['end']]
     ) ?: ['consumption' => 0, 'cost' => 0, 'month' => '-'],
-    
+
     'lowest_month' => Database::fetchOne(
-        "SELECT consumption, cost, DATE_FORMAT(reading_date, '%m/%Y') as month 
-         FROM meter_readings 
-         WHERE user_id = ? AND YEAR(reading_date) = YEAR(CURDATE()) AND consumption IS NOT NULL
+        "SELECT consumption, cost, DATE_FORMAT(reading_date, '%m/%Y') as month
+         FROM meter_readings
+         WHERE user_id = ? AND reading_date BETWEEN ? AND ? AND consumption IS NOT NULL
          ORDER BY consumption ASC LIMIT 1",
-        [$userId]
+        [$userId, $currentBillingPeriod['start'], $currentBillingPeriod['end']]
     ) ?: ['consumption' => 0, 'cost' => 0, 'month' => '-']
 ];
 
@@ -228,21 +277,21 @@ include 'includes/navbar.php';
                             <select class="form-select" name="period" onchange="this.form.submit()">
                                 <option value="6months" <?= $selectedPeriod === '6months' ? 'selected' : '' ?>>Letzte 6 Monate</option>
                                 <option value="12months" <?= $selectedPeriod === '12months' ? 'selected' : '' ?>>Letzte 12 Monate</option>
-                                <option value="year" <?= $selectedPeriod === 'year' ? 'selected' : '' ?>>Aktuelles Jahr</option>
+                                <option value="year" <?= $selectedPeriod === 'year' ? 'selected' : '' ?>><?= $isCalendarYear ? 'Aktuelles Jahr' : 'Aktueller Abrechnungszeitraum' ?></option>
                             </select>
                         </div>
-                        
+
                         <?php if (!empty($availableYears) && $selectedPeriod !== 'year'): ?>
                         <div class="col-md-4">
                             <label class="form-label">
-                                <i class="bi bi-calendar3 me-1"></i>Jahr
+                                <i class="bi bi-calendar3 me-1"></i><?= $isCalendarYear ? 'Jahr' : 'Abrechnungszeitraum' ?>
                             </label>
                             <select class="form-select" name="year" onchange="this.form.submit()">
                                 <?php foreach ($availableYears as $year): ?>
-                                    <option value="<?= $year['year'] ?>" 
+                                    <option value="<?= $year['year'] ?>"
                                             <?= $selectedYear == $year['year'] ? 'selected' : '' ?>>
-                                        <?= $year['year'] ?>
-                                        <?= $year['year'] == date('Y') ? ' (Aktuell)' : '' ?>
+                                        <?= $year['label'] ?>
+                                        <?= $year['year'] == $currentBillingStartYear ? ' (Aktuell)' : '' ?>
                                     </option>
                                 <?php endforeach; ?>
                             </select>
@@ -361,7 +410,7 @@ include 'includes/navbar.php';
                 <div class="card-header">
                     <h5 class="mb-0">
                         <i class="bi bi-pie-chart text-primary"></i>
-                        Jahresvergleich
+                        <?= $isCalendarYear ? 'Jahresvergleich' : 'Abrechnungszeitraum-Vergleich' ?>
                     </h5>
                 </div>
                 <div class="card-body">
@@ -542,7 +591,7 @@ include 'includes/navbar.php';
                 <div class="card-header">
                     <h5 class="mb-0">
                         <i class="bi bi-table text-energy"></i>
-                        Jahresvergleich im Detail
+                        <?= $isCalendarYear ? 'Jahresvergleich' : 'Abrechnungszeitraum-Vergleich' ?> im Detail
                     </h5>
                 </div>
                 <div class="card-body p-0">
@@ -550,7 +599,7 @@ include 'includes/navbar.php';
                         <table class="table table-hover mb-0">
                             <thead style="background: var(--gray-50);">
                                 <tr>
-                                    <th>Jahr</th>
+                                    <th><?= $isCalendarYear ? 'Jahr' : 'Abrechnungszeitraum' ?></th>
                                     <th>Ablesungen</th>
                                     <th>Gesamtverbrauch</th>
                                     <th>Gesamtkosten</th>
@@ -560,10 +609,10 @@ include 'includes/navbar.php';
                             </thead>
                             <tbody>
                                 <?php foreach ($yearlyComparison as $year): ?>
-                                    <tr class="<?= $year['year'] == date('Y') ? 'table-success' : '' ?>">
+                                    <tr class="<?= $year['year'] == $currentBillingStartYear ? 'table-success' : '' ?>">
                                         <td>
-                                            <strong><?= $year['year'] ?></strong>
-                                            <?php if ($year['year'] == date('Y')): ?>
+                                            <strong><?= $year['label'] ?></strong>
+                                            <?php if ($year['year'] == $currentBillingStartYear): ?>
                                                 <span class="badge bg-primary ms-1">Aktuell</span>
                                             <?php endif; ?>
                                         </td>
@@ -582,6 +631,69 @@ include 'includes/navbar.php';
                                                 <?= number_format($year['min_consumption'], 1) ?> - 
                                                 <?= number_format($year['max_consumption'], 1) ?> kWh
                                             </small>
+                                        </td>
+                                    </tr>
+                                <?php endforeach; ?>
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+    <?php endif; ?>
+
+    <!-- Vergleich nach Tarifzeitraum -->
+    <?php if (!empty($tariffComparison)): ?>
+    <div class="row mt-4">
+        <div class="col-12">
+            <div class="card">
+                <div class="card-header">
+                    <h5 class="mb-0">
+                        <i class="bi bi-tags text-energy"></i>
+                        Vergleich nach Tarifzeitraum
+                    </h5>
+                </div>
+                <div class="card-body p-0">
+                    <div class="table-responsive">
+                        <table class="table table-hover mb-0">
+                            <thead style="background: var(--gray-50);">
+                                <tr>
+                                    <th>Tarif</th>
+                                    <th>Zeitraum</th>
+                                    <th>Preis/kWh</th>
+                                    <th>Ablesungen</th>
+                                    <th>Gesamtverbrauch</th>
+                                    <th>Gesamtkosten</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                <?php foreach ($tariffComparison as $tp): ?>
+                                    <tr class="<?= empty($tp['valid_to']) ? 'table-success' : '' ?>">
+                                        <td>
+                                            <strong><?= htmlspecialchars($tp['tariff_name'] ?: 'Tarif') ?></strong>
+                                            <?php if (!empty($tp['provider_name'])): ?>
+                                                <br><small class="text-muted"><?= htmlspecialchars($tp['provider_name']) ?></small>
+                                            <?php endif; ?>
+                                            <?php if (empty($tp['valid_to'])): ?>
+                                                <span class="badge bg-primary ms-1">Aktuell</span>
+                                            <?php endif; ?>
+                                        </td>
+                                        <td>
+                                            <small>
+                                                <?= date('d.m.Y', strtotime($tp['valid_from'])) ?>
+                                                – <?= $tp['valid_to'] ? date('d.m.Y', strtotime($tp['valid_to'])) : 'offen' ?>
+                                            </small>
+                                        </td>
+                                        <td><?= number_format($tp['rate_per_kwh'], 4, ',', '.') ?> €</td>
+                                        <td><?= $tp['readings_count'] ?></td>
+                                        <td>
+                                            <span class="badge bg-success">
+                                                <?= number_format($tp['total_consumption'], 1) ?> kWh
+                                            </span>
+                                        </td>
+                                        <td>
+                                            <strong class="text-warning"><?= number_format($tp['total_cost'], 2) ?> €</strong>
                                         </td>
                                     </tr>
                                 <?php endforeach; ?>
@@ -709,7 +821,7 @@ document.addEventListener('DOMContentLoaded', function() {
                 new Chart(yearCtx, {
                     type: 'doughnut',
                     data: {
-                        labels: yearlyData.map(item => item.year.toString()),
+                        labels: yearlyData.map(item => (item.label ?? item.year).toString()),
                         datasets: [{
                             data: yearlyData.map(item => parseFloat(item.total_consumption) || 0),
                             backgroundColor: chartColors.slice(0, yearlyData.length),

@@ -499,6 +499,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                         'telegram_chat_id' => trim($_POST['telegram_chat_id'] ?? '')
                     ];
                     
+                    // Logging für Fehlersuche
+                    error_log("Notification Settings Save - User ID: " . $userId . " - Email: " . ($notificationSettings['email_notifications'] ? 'enabled' : 'disabled'));
+                    
                     // SMTP-Validierung
                     if ($notificationSettings['smtp_enabled']) {
                         if (empty($notificationSettings['smtp_host'])) {
@@ -525,6 +528,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     }
                     
                     $success = NotificationManager::saveUserSettings($userId, $notificationSettings);
+                    
+                    error_log("Save result: " . ($success ? 'SUCCESS' : 'FAILED'));
                     
                     if ($success) {
                         Flash::success('Benachrichtigungseinstellungen erfolgreich gespeichert.');
@@ -1086,6 +1091,7 @@ include 'includes/navbar.php';
                                 <input type="hidden" name="action" value="update_notifications">
                                 
                                 <h6>📧 E-Mail Benachrichtigungen</h6>
+                                
                                 <div class="row">
                                     <div class="col-md-12 mb-3">
                                         <div class="form-check">
@@ -1287,21 +1293,19 @@ include 'includes/navbar.php';
                                             
                                             <!-- Test-Buttons -->
                                             <div class="d-flex gap-2 mt-3">
-                                                <form method="POST" class="d-inline">
-                                                    <input type="hidden" name="csrf_token" value="<?= htmlspecialchars($csrfToken) ?>">
-                                                    <input type="hidden" name="action" value="test_smtp">
-                                                    <button type="submit" class="btn btn-outline-info btn-sm">
-                                                        <i class="bi bi-plug"></i> SMTP-Verbindung testen
-                                                    </button>
-                                                </form>
+                                                <!-- SMTP Test -->
+                                                <button type="submit" 
+                                                        form="smtp-test-form"
+                                                        class="btn btn-outline-info btn-sm">
+                                                    <i class="bi bi-plug"></i> SMTP-Verbindung testen
+                                                </button>
                                                 
-                                                <form method="POST" class="d-inline">
-                                                    <input type="hidden" name="csrf_token" value="<?= htmlspecialchars($csrfToken) ?>">
-                                                    <input type="hidden" name="action" value="send_test_email">
-                                                    <button type="submit" class="btn btn-outline-primary btn-sm">
-                                                        <i class="bi bi-envelope-check"></i> Test-E-Mail senden
-                                                    </button>
-                                                </form>
+                                                <!-- E-Mail Test -->
+                                                <button type="submit" 
+                                                        form="email-test-form"
+                                                        class="btn btn-outline-primary btn-sm">
+                                                    <i class="bi bi-envelope-check"></i> Test-E-Mail senden
+                                                </button>
                                             </div>
                                             
                                         </div>
@@ -1437,6 +1441,17 @@ include 'includes/navbar.php';
                                         <i class="bi bi-check-circle"></i> Alle Einstellungen Speichern
                                     </button>
                                 </div>
+                            </form>
+                            
+                            <!-- Separate Test-Forms (außerhalb des Haupt-Forms) -->
+                            <form method="POST" id="smtp-test-form" style="display: none;">
+                                <input type="hidden" name="csrf_token" value="<?= htmlspecialchars($csrfToken) ?>">
+                                <input type="hidden" name="action" value="test_smtp">
+                            </form>
+                            
+                            <form method="POST" id="email-test-form" style="display: none;">
+                                <input type="hidden" name="csrf_token" value="<?= htmlspecialchars($csrfToken) ?>">
+                                <input type="hidden" name="action" value="send_test_email">
                             </form>
                             
                             <?php if ($telegramEnabled): ?>

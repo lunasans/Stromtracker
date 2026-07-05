@@ -6,6 +6,12 @@
 if (!function_exists('loadEnv')) {
     /**
      * Lädt die .env-Datei einmalig in $_ENV / getenv().
+     *
+     * Suchreihenfolge (erste lesbare Datei gewinnt):
+     *   1. EINE Ebene ÜBER dem Projekt-Root (außerhalb des Web-Roots —
+     *      empfohlen für Produktion, da so kein Webserver die Datei
+     *      ausliefern kann, egal ob Apache oder nginx)
+     *   2. Projekt-Root selbst (lokale Entwicklung)
      */
     function loadEnv(?string $path = null): void
     {
@@ -15,8 +21,19 @@ if (!function_exists('loadEnv')) {
         }
         $loaded = true;
 
-        $path = $path ?? dirname(__DIR__) . '/.env';
-        if (!is_readable($path)) {
+        $projectRoot = dirname(__DIR__);
+        $candidates = $path !== null
+            ? [$path]
+            : [dirname($projectRoot) . '/.env', $projectRoot . '/.env'];
+
+        $path = null;
+        foreach ($candidates as $candidate) {
+            if (is_readable($candidate)) {
+                $path = $candidate;
+                break;
+            }
+        }
+        if ($path === null) {
             return; // Keine .env vorhanden -> es greifen die Fallbacks in env()
         }
 

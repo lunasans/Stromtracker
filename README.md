@@ -122,6 +122,24 @@ Bot: 📈 Monatsstatistiken...
 
 ## 🤖 Telegram Bot Setup
 
+## Onboarding für Entwickler (Kurz)
+
+Für Teammitglieder, die lokal entwickeln möchten, bitte kurz Husky aktivieren, damit Commit‑Hooks laufen:
+
+```bash
+cd v4
+npm install
+# falls nötig:
+npx husky install
+npx husky add .husky/commit-msg 'sh ../.githooks/commit-msg "$1"'
+
+# Test-Commit
+git commit --allow-empty -m "fix(ci): test husky"
+```
+
+Eine ausführliche Checkliste gibt es in `tasks/husky_readme.md`.
+
+
 ### **3 einfache Schritte:**
 
 1. **Bot erstellen:**

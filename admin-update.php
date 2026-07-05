@@ -234,7 +234,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 // SETUP-CHECKS (read-only, immer angezeigt)
 // =============================================================================
 $checks = [];
-$checks[] = ['.env vorhanden', is_readable($projectRoot . '/.env')];
+$envOutside = is_readable(dirname($projectRoot) . '/.env');
+$envInside  = is_readable($projectRoot . '/.env');
+$checks[] = ['.env vorhanden' . ($envOutside ? ' (außerhalb Web-Root ✓)' : ($envInside ? ' (im Web-Root – besser eine Ebene höher!)' : '')), $envOutside || $envInside];
 $checks[] = ['logs/ beschreibbar', is_writable($projectRoot . '/logs')];
 $checks[] = ['PHP >= 8.0', version_compare(PHP_VERSION, '8.0.0', '>=')];
 $checks[] = ['DB-Verbindung', isset($pdo) && $pdo instanceof PDO];
@@ -244,96 +246,191 @@ $checks[] = ['exec() verfügbar (git pull)', function_exists('exec')];
 
 $pending = pendingMigrationCount($projectRoot);
 $csrf = htmlspecialchars(Auth::generateCSRFToken());
+
+$pageTitle = 'System-Update - Stromtracker';
+include 'includes/header.php';
+include 'includes/navbar.php';
 ?>
-<!DOCTYPE html>
-<html lang="de">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Admin-Update – Stromtracker</title>
-    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css" rel="stylesheet">
-    <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.2/font/bootstrap-icons.css" rel="stylesheet">
-    <style>
-        body { background: #0f172a; color: #e2e8f0; font-family: system-ui, sans-serif; padding: 2rem 1rem; }
-        .card { background: #1e293b; border: 1px solid #334155; }
-        pre { background: #020617; color: #22c55e; padding: 1rem; border-radius: .5rem; white-space: pre-wrap; word-break: break-word; }
-        .check-ok { color: #22c55e; } .check-bad { color: #ef4444; }
-        h1 { font-size: 1.5rem; } h2 { font-size: 1.15rem; }
-    </style>
-</head>
-<body>
-<div class="container" style="max-width: 860px;">
-    <h1 class="mb-1"><i class="bi bi-arrow-repeat"></i> Admin-Update</h1>
-    <p class="text-secondary">Angemeldet als <?= htmlspecialchars(Auth::getUser()['email']) ?></p>
 
-    <?php if ($formError): ?>
-        <div class="alert alert-danger"><?= htmlspecialchars($formError) ?></div>
-    <?php endif; ?>
+<!-- Seiten-spezifische Styles (Theme-Variablen aus style.css) -->
+<style>
+    .update-console {
+        background: var(--gray-900, #111827);
+        color: var(--success, #22c55e);
+        font-family: 'SFMono-Regular', Consolas, 'Liberation Mono', monospace;
+        font-size: 0.85rem;
+        padding: var(--space-4, 1rem);
+        border-radius: var(--radius-lg, 8px);
+        white-space: pre-wrap;
+        word-break: break-word;
+        margin-bottom: 0;
+    }
+    .check-item {
+        display: flex;
+        align-items: center;
+        gap: 0.5rem;
+        padding: 0.35rem 0;
+    }
+    .action-tile {
+        border: 1px solid var(--gray-200, #e5e7eb);
+        border-radius: var(--radius-lg, 8px);
+        padding: var(--space-4, 1rem);
+        height: 100%;
+        transition: border-color 0.2s ease;
+    }
+    .action-tile:hover {
+        border-color: var(--energy, #f59e0b);
+    }
+    [data-theme="dark"] .action-tile {
+        border-color: var(--gray-600, #4b5563);
+    }
+    .action-tile .form-check-label {
+        font-weight: 600;
+        cursor: pointer;
+    }
+    .action-tile small {
+        display: block;
+        margin-top: 0.25rem;
+    }
+</style>
 
-    <!-- Setup-Checks -->
-    <div class="card mb-4">
-        <div class="card-body">
-            <h2 class="mb-3"><i class="bi bi-clipboard-check"></i> Setup-Checks</h2>
-            <ul class="list-unstyled mb-0">
-                <?php foreach ($checks as [$label, $pass]): ?>
-                    <li>
-                        <?php if ($pass): ?>
-                            <span class="check-ok"><i class="bi bi-check-circle-fill"></i> <?= htmlspecialchars($label) ?></span>
-                        <?php else: ?>
-                            <span class="check-bad"><i class="bi bi-x-circle-fill"></i> <?= htmlspecialchars($label) ?></span>
-                        <?php endif; ?>
-                    </li>
-                <?php endforeach; ?>
-            </ul>
-            <p class="mt-3 mb-0">
-                <i class="bi bi-database"></i> Ausstehende Migrationen:
-                <strong class="<?= $pending > 0 ? 'text-warning' : 'text-success' ?>"><?= $pending ?></strong>
-            </p>
-        </div>
-    </div>
+<div class="container-fluid py-4">
 
-    <!-- Aktionen -->
-    <div class="card mb-4">
-        <div class="card-body">
-            <h2 class="mb-3"><i class="bi bi-lightning-charge"></i> Update ausführen</h2>
-            <form method="POST">
-                <input type="hidden" name="csrf_token" value="<?= $csrf ?>">
-                <div class="form-check">
-                    <input class="form-check-input" type="checkbox" name="do_gitpull" id="do_gitpull" value="1" checked>
-                    <label class="form-check-label" for="do_gitpull">Code aktualisieren (git pull)</label>
-                </div>
-                <div class="form-check">
-                    <input class="form-check-input" type="checkbox" name="do_migrate" id="do_migrate" value="1" checked>
-                    <label class="form-check-label" for="do_migrate">DB-Migrationen anwenden</label>
-                </div>
-                <div class="form-check mb-3">
-                    <input class="form-check-input" type="checkbox" name="do_housekeeping" id="do_housekeeping" value="1">
-                    <label class="form-check-label" for="do_housekeeping">Housekeeping (Logs kürzen, OPcache)</label>
-                </div>
-                <button type="submit" class="btn btn-warning"
-                        onclick="return confirm('Update jetzt ausführen?');">
-                    <i class="bi bi-play-fill"></i> Ausführen
-                </button>
-            </form>
-        </div>
-    </div>
-
-    <!-- Ergebnisse -->
-    <?php if (!empty($results)): ?>
-        <div class="card mb-4">
-            <div class="card-body">
-                <h2 class="mb-3"><i class="bi bi-terminal"></i> Ergebnis</h2>
-                <?php foreach ($results as $res): ?>
-                    <h3 class="h6 <?= $res['ok'] ? 'text-success' : 'text-danger' ?>">
-                        <?= $res['ok'] ? '✅' : '❌' ?> <?= htmlspecialchars($res['title']) ?>
-                    </h3>
-                    <pre><?= htmlspecialchars(implode("\n", $res['lines'])) ?></pre>
-                <?php endforeach; ?>
+    <!-- Header -->
+    <div class="row mb-4">
+        <div class="col-12">
+            <div class="card glass p-4">
+                <h1 class="text-energy mb-2">
+                    <i class="bi bi-arrow-repeat"></i>
+                    System-Update
+                </h1>
+                <p class="text-muted mb-0">
+                    Setup-Checks, Code-Update, Datenbank-Migrationen und Housekeeping –
+                    zentral an einem Ort.
+                </p>
             </div>
         </div>
-    <?php endif; ?>
+    </div>
 
-    <p><a href="dashboard.php" class="btn btn-outline-light btn-sm"><i class="bi bi-arrow-left"></i> Zurück zum Dashboard</a></p>
+    <div class="row">
+        <div class="col-lg-8 mx-auto">
+
+            <?php if ($formError): ?>
+                <div class="alert alert-danger">
+                    <i class="bi bi-exclamation-triangle me-2"></i><?= htmlspecialchars($formError) ?>
+                </div>
+            <?php endif; ?>
+
+            <!-- Ergebnisse (direkt oben, wenn vorhanden) -->
+            <?php if (!empty($results)): ?>
+                <div class="card mb-4">
+                    <div class="card-header">
+                        <h5 class="mb-0">
+                            <i class="bi bi-terminal text-energy"></i>
+                            Ergebnis
+                        </h5>
+                    </div>
+                    <div class="card-body">
+                        <?php foreach ($results as $res): ?>
+                            <div class="d-flex align-items-center gap-2 mb-2">
+                                <span class="badge <?= $res['ok'] ? 'badge-success' : 'badge-danger' ?>">
+                                    <?= $res['ok'] ? 'OK' : 'Fehler' ?>
+                                </span>
+                                <strong><?= htmlspecialchars($res['title']) ?></strong>
+                            </div>
+                            <pre class="update-console mb-4"><?= htmlspecialchars(implode("\n", $res['lines'])) ?></pre>
+                        <?php endforeach; ?>
+                    </div>
+                </div>
+            <?php endif; ?>
+
+            <!-- Setup-Checks -->
+            <div class="card mb-4">
+                <div class="card-header d-flex justify-content-between align-items-center">
+                    <h5 class="mb-0">
+                        <i class="bi bi-clipboard-check text-info"></i>
+                        Setup-Checks
+                    </h5>
+                    <span class="badge <?= $pending > 0 ? 'badge-warning' : 'badge-success' ?>">
+                        <?= $pending ?> Migration<?= $pending === 1 ? '' : 'en' ?> ausstehend
+                    </span>
+                </div>
+                <div class="card-body">
+                    <div class="row">
+                        <?php foreach ($checks as [$label, $pass]): ?>
+                            <div class="col-md-6">
+                                <div class="check-item">
+                                    <?php if ($pass): ?>
+                                        <i class="bi bi-check-circle-fill text-success"></i>
+                                    <?php else: ?>
+                                        <i class="bi bi-x-circle-fill text-danger"></i>
+                                    <?php endif; ?>
+                                    <span><?= htmlspecialchars($label) ?></span>
+                                </div>
+                            </div>
+                        <?php endforeach; ?>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Aktionen -->
+            <div class="card mb-4">
+                <div class="card-header">
+                    <h5 class="mb-0">
+                        <i class="bi bi-lightning-charge text-energy"></i>
+                        Update ausführen
+                    </h5>
+                </div>
+                <div class="card-body">
+                    <form method="POST">
+                        <input type="hidden" name="csrf_token" value="<?= $csrf ?>">
+
+                        <div class="row g-3 mb-4">
+                            <div class="col-md-4">
+                                <div class="action-tile">
+                                    <div class="form-check">
+                                        <input class="form-check-input" type="checkbox" name="do_gitpull" id="do_gitpull" value="1" checked>
+                                        <label class="form-check-label" for="do_gitpull">
+                                            <i class="bi bi-git text-energy"></i> Code
+                                        </label>
+                                        <small class="text-muted">Neueste Version per git pull holen.</small>
+                                    </div>
+                                </div>
+                            </div>
+                            <div class="col-md-4">
+                                <div class="action-tile">
+                                    <div class="form-check">
+                                        <input class="form-check-input" type="checkbox" name="do_migrate" id="do_migrate" value="1" checked>
+                                        <label class="form-check-label" for="do_migrate">
+                                            <i class="bi bi-database text-energy"></i> Datenbank
+                                        </label>
+                                        <small class="text-muted">Ausstehende Migrationen anwenden.</small>
+                                    </div>
+                                </div>
+                            </div>
+                            <div class="col-md-4">
+                                <div class="action-tile">
+                                    <div class="form-check">
+                                        <input class="form-check-input" type="checkbox" name="do_housekeeping" id="do_housekeeping" value="1">
+                                        <label class="form-check-label" for="do_housekeeping">
+                                            <i class="bi bi-stars text-energy"></i> Housekeeping
+                                        </label>
+                                        <small class="text-muted">Logs kürzen, OPcache leeren.</small>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+
+                        <button type="submit" class="btn btn-energy"
+                                onclick="return confirm('Update jetzt ausführen?');">
+                            <i class="bi bi-play-fill"></i> Update ausführen
+                        </button>
+                    </form>
+                </div>
+            </div>
+
+        </div>
+    </div>
 </div>
-</body>
-</html>
+
+<?php include 'includes/footer.php'; ?>

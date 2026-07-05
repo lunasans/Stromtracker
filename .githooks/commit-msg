@@ -1,0 +1,18 @@
+#!/bin/sh
+# commit-msg hook to enforce conventional commit message format
+# Usage: placed in .githooks and set via `git config core.hooksPath .githooks`
+
+MSG_FILE="$1"
+MSG=`cat "$MSG_FILE"`
+
+regex="^(feat|fix|chore|docs|style|refactor|perf|test|build|ci|revert)(\(.+\))?:\s.+"
+
+if echo "$MSG" | grep -Eq "$regex"; then
+  exit 0
+else
+  echo "Aborted: Commit message does not match Conventional Commits format." >&2
+  echo "Expected: <type>(optional-scope): short description" >&2
+  echo "Allowed types: feat, fix, chore, docs, style, refactor, perf, test, build, ci, revert" >&2
+  echo "Beispiel: fix(api): handle null payload" >&2
+  exit 1
+fi

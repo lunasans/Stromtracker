@@ -26,19 +26,60 @@ $projectRoot = __DIR__;
 
 /**
  * Code-Update per git pull (portabel über git -C, ohne cd).
+ *
+ * $force = true verwirft vorher alle lokalen Änderungen an getrackten
+ * Dateien (git fetch + reset --hard auf den Origin-Stand). Nötig, wenn
+ * per FTP hochgeladene Dateien den Pull blockieren ("would be overwritten").
+ * Untracked Dateien (.env, uploads/, logs/) bleiben unberührt.
  */
-function actionGitPull(string $root): array {
+function actionGitPull(string $root, bool $force = false): array {
     if (!function_exists('exec')) {
         return ['ok' => false, 'lines' => ['exec() ist auf diesem Server deaktiviert – git pull nicht möglich.']];
     }
     if (!is_dir($root . '/.git')) {
         return ['ok' => false, 'lines' => ['Kein Git-Repository gefunden (.git fehlt).']];
     }
+
+    $rootArg = escapeshellarg($root);
+    $lines = [];
+
+    if ($force) {
+        // Aktuellen Branch ermitteln
+        $branchOut = [];
+        $code = 0;
+        exec("git -C {$rootArg} rev-parse --abbrev-ref HEAD 2>&1", $branchOut, $code);
+        $branch = trim($branchOut[0] ?? '');
+        if ($code !== 0 || $branch === '' || $branch === 'HEAD') {
+            return ['ok' => false, 'lines' => array_merge(['Branch konnte nicht ermittelt werden:'], $branchOut)];
+        }
+        $lines[] = "Branch: {$branch}";
+
+        $out = [];
+        exec("git -C {$rootArg} fetch origin 2>&1", $out, $code);
+        $lines = array_merge($lines, $out);
+        if ($code !== 0) {
+            return ['ok' => false, 'lines' => array_merge($lines, ['git fetch fehlgeschlagen.'])];
+        }
+
+        $out = [];
+        exec("git -C {$rootArg} reset --hard " . escapeshellarg("origin/{$branch}") . " 2>&1", $out, $code);
+        $lines = array_merge($lines, $out);
+        if (empty($out)) {
+            $lines[] = '(keine Ausgabe)';
+        }
+        return ['ok' => $code === 0, 'lines' => $lines];
+    }
+
     $out = [];
     $code = 0;
-    exec('git -C ' . escapeshellarg($root) . ' pull 2>&1', $out, $code);
+    exec("git -C {$rootArg} pull 2>&1", $out, $code);
     if (empty($out)) {
         $out[] = '(keine Ausgabe)';
+    }
+    if ($code !== 0 && stripos(implode("\n", $out), 'overwritten by merge') !== false) {
+        $out[] = '';
+        $out[] = '💡 Lokale Datei-Änderungen (z.B. FTP-Uploads) blockieren den Pull.';
+        $out[] = '   Aktiviere die Option "Lokale Änderungen verwerfen" und führe das Update erneut aus.';
     }
     return ['ok' => $code === 0, 'lines' => $out];
 }
@@ -213,8 +254,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $formError = 'Sicherheitsprüfung fehlgeschlagen. Bitte Seite neu laden.';
     } else {
         if (!empty($_POST['do_gitpull'])) {
-            $r = actionGitPull($projectRoot);
-            $results[] = ['title' => 'Code-Update (git pull)'] + $r;
+            $force = !empty($_POST['git_force']);
+            $r = actionGitPull($projectRoot, $force);
+            $results[] = ['title' => $force ? 'Code-Update (fetch + reset --hard)' : 'Code-Update (git pull)'] + $r;
         }
         if (!empty($_POST['do_migrate'])) {
             $r = actionMigrate($projectRoot);
@@ -394,6 +436,14 @@ include 'includes/navbar.php';
                                             <i class="bi bi-git text-energy"></i> Code
                                         </label>
                                         <small class="text-muted">Neueste Version per git pull holen.</small>
+                                    </div>
+                                    <div class="form-check mt-2">
+                                        <input class="form-check-input" type="checkbox" name="git_force" id="git_force" value="1">
+                                        <label class="form-check-label text-warning" for="git_force" style="font-weight: 500;">
+                                            Lokale Änderungen verwerfen
+                                        </label>
+                                        <small class="text-muted">Nur bei Pull-Fehlern durch FTP-Überreste
+                                            (fetch + reset --hard; .env/uploads bleiben unberührt).</small>
                                     </div>
                                 </div>
                             </div>

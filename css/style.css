@@ -273,13 +273,79 @@ a {
   padding: var(--space-4) var(--space-6);
 }
 
-/* Hero-/Titelkarte mit dezentem Energie-Schimmer */
+/* Hero-/Titelkarte mit dezentem Energie-Schimmer — kompakt gehalten */
 .glass {
   background:
     radial-gradient(1200px 300px at 0% 0%, rgba(245, 158, 11, 0.07), transparent 60%),
     var(--surface);
   border: 1px solid var(--border);
 }
+
+.card.glass.p-4 {
+  padding: var(--space-4) var(--space-6) !important;
+}
+
+.glass h1 {
+  font-size: var(--font-size-xl);
+  margin-bottom: var(--space-1);
+}
+
+.glass h1 + p {
+  font-size: var(--font-size-sm);
+  margin-bottom: 0;
+}
+
+/* Einheitliche Statistik-Kacheln (Dashboard & Co.)
+   Ersetzt die verwaisten Styles aus style.-backup.css */
+.flex-between {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.stats-card {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  padding: var(--space-5) var(--space-6);
+  box-shadow: var(--shadow);
+  height: 100%;
+}
+
+.stats-card .stats-icon {
+  font-size: 1.25rem;
+  width: 42px;
+  height: 42px;
+  border-radius: var(--radius-md);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.stats-card h3 {
+  font-size: 1.75rem;
+  font-weight: 800;
+  margin-bottom: 2px;
+  color: var(--text);
+  font-variant-numeric: tabular-nums;
+  letter-spacing: -0.02em;
+}
+
+.stats-card p {
+  margin-bottom: 0;
+  font-size: var(--font-size-sm);
+  color: var(--text-3);
+}
+
+.stats-card .small {
+  color: var(--text-3);
+}
+
+.stats-card.primary .stats-icon { background: rgba(14, 165, 233, 0.12);  color: var(--primary); }
+.stats-card.energy .stats-icon  { background: rgba(245, 158, 11, 0.12);  color: var(--energy); }
+.stats-card.success .stats-icon { background: rgba(34, 197, 94, 0.12);   color: var(--success); }
+.stats-card.warning .stats-icon { background: rgba(234, 179, 8, 0.15);   color: var(--warning-dark); }
+.stats-card.danger .stats-icon  { background: rgba(239, 68, 68, 0.12);   color: var(--danger); }
 
 /* Statistik-Karten */
 .card-stats {
@@ -627,37 +693,6 @@ a {
   background-color: var(--energy);
   animation: pulse-ring 2s infinite;
   display: inline-block;
-}
-
-/* Breadcrumb */
-.breadcrumb-nav {
-  background: var(--surface);
-  border-bottom: 1px solid var(--border);
-}
-
-.breadcrumb {
-  margin: 0;
-  padding: var(--space-2) 0;
-}
-
-.breadcrumb-item {
-  color: var(--text-2);
-  font-size: var(--font-size-sm);
-}
-
-.breadcrumb-item.active {
-  color: var(--text);
-  font-weight: 600;
-}
-
-.breadcrumb-link {
-  color: var(--text-2);
-  transition: color 0.15s ease;
-}
-
-.breadcrumb-link:hover {
-  color: var(--energy);
-  text-decoration: none;
 }
 
 /* =====================================================

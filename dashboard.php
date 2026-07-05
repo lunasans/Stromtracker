@@ -612,21 +612,6 @@ document.addEventListener('DOMContentLoaded', function() {
     });
     <?php endif; ?>
 
-    // Animate stats cards on load
-    const statsCards = document.querySelectorAll('.stats-card');
-    statsCards.forEach((card, index) => {
-        setTimeout(() => {
-            card.style.opacity = '0';
-            card.style.transform = 'translateY(20px)';
-            card.style.transition = 'all 0.5s ease';
-            
-            requestAnimationFrame(() => {
-                card.style.opacity = '1';
-                card.style.transform = 'translateY(0)';
-            });
-        }, index * 100);
-    });
-    
     // Benachrichtigungsalarm automatisch nach 10 Sekunden ausblenden (optional)
     const reminderAlert = document.querySelector('.alert-warning');
     if (reminderAlert) {

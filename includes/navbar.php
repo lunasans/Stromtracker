@@ -88,17 +88,6 @@ if (!function_exists('renderUserAvatar')) {
     }
 }
 
-// Breadcrumb-Definitionen
-$breadcrumbs = [
-    'dashboard' => 'Dashboard',
-    'geraete' => 'Geräte-Verwaltung',
-    'zaehlerstand' => 'Zählerstände',
-    'tarife' => 'Tarif-Verwaltung',
-    'auswertung' => 'Auswertungen & Charts',
-    'profil' => 'Mein Profil',
-    'einstellungen' => 'Einstellungen',
-];
-
 // Hauptnavigation
 $navItems = [
     'dashboard'    => ['bi-house-door',   'Dashboard'],
@@ -234,26 +223,6 @@ $navItems = [
         </div>
     </div>
 </nav>
-
-<!-- Breadcrumb Navigation -->
-<?php if (isset($breadcrumbs[$currentPage])): ?>
-<nav class="breadcrumb-nav py-2">
-    <div class="container-fluid">
-        <ol class="breadcrumb mb-0">
-            <li class="breadcrumb-item">
-                <a href="dashboard.php" class="breadcrumb-link text-decoration-none">
-                    <i class="bi bi-house-door me-1"></i>Home
-                </a>
-            </li>
-            <?php if ($currentPage !== 'dashboard'): ?>
-                <li class="breadcrumb-item active" aria-current="page">
-                    <?= $breadcrumbs[$currentPage] ?>
-                </li>
-            <?php endif; ?>
-        </ol>
-    </div>
-</nav>
-<?php endif; ?>
 
 <script>
 // Mobile Navigation: nach Klick auf einen Link automatisch einklappen

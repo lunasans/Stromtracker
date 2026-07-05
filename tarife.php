@@ -162,14 +162,6 @@ $currentTariff = Database::fetchOne(
     [$userId]
 );
 
-// Statistiken berechnen
-$stats = [
-    'total_tariffs' => count($tariffs),
-    'active_tariff' => $currentTariff ? 1 : 0,
-    'current_rate' => $currentTariff['rate_per_kwh'] ?? 0,
-    'current_payment' => $currentTariff['monthly_payment'] ?? 0
-];
-
 // Abschlag-Analyse der letzten 12 Monate (falls vorhanden)
 $paymentAnalysis = Database::fetchAll(
     "SELECT mr.*, tp.monthly_payment,
@@ -218,61 +210,6 @@ include 'includes/navbar.php';
         </div>
     </div>
     
-    <!-- Statistik Cards -->
-    <div class="row mb-4">
-        <div class="col-md-3 mb-3">
-            <div class="stats-card primary">
-                <div class="flex-between mb-3">
-                    <i class="stats-icon bi bi-receipt"></i>
-                    <div class="small">
-                        Gesamt
-                    </div>
-                </div>
-                <h3><?= $stats['total_tariffs'] ?></h3>
-                <p>Tarife erfasst</p>
-            </div>
-        </div>
-        
-        <div class="col-md-3 mb-3">
-            <div class="stats-card <?= $stats['active_tariff'] > 0 ? 'success' : 'danger' ?>">
-                <div class="flex-between mb-3">
-                    <i class="stats-icon bi bi-<?= $stats['active_tariff'] > 0 ? 'check-circle' : 'x-circle' ?>"></i>
-                    <div class="small">
-                        Status
-                    </div>
-                </div>
-                <h3><?= $stats['active_tariff'] > 0 ? 'Aktiv' : 'Fehlt' ?></h3>
-                <p>Aktueller Tarif</p>
-            </div>
-        </div>
-        
-        <div class="col-md-3 mb-3">
-            <div class="stats-card energy">
-                <div class="flex-between mb-3">
-                    <i class="stats-icon bi bi-lightning-charge"></i>
-                    <div class="small">
-                        €/kWh
-                    </div>
-                </div>
-                <h3><?= number_format($stats['current_rate'], 4) ?></h3>
-                <p>Arbeitspreis</p>
-            </div>
-        </div>
-        
-        <div class="col-md-3 mb-3">
-            <div class="stats-card warning">
-                <div class="flex-between mb-3">
-                    <i class="stats-icon bi bi-calendar-check"></i>
-                    <div class="small">
-                        Monatlich
-                    </div>
-                </div>
-                <h3><?= number_format($stats['current_payment'], 0) ?> €</h3>
-                <p>Abschlag</p>
-            </div>
-        </div>
-    </div>
-
     <!-- Aktueller Tarif -->
     <?php if ($currentTariff): ?>
         <div class="row mb-4">

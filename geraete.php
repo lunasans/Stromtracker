@@ -349,13 +349,7 @@ include 'includes/navbar.php';
 <!-- Custom CSS -->
 <style>
 .device-card {
-    transition: all 0.3s ease;
     border: 1px solid var(--gray-300);
-}
-
-.device-card:hover {
-    transform: translateY(-2px);
-    box-shadow: 0 4px 15px rgba(0,0,0,0.1);
 }
 
 .device-card.inactive {

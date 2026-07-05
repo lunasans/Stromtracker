@@ -612,7 +612,6 @@ include 'includes/navbar.php';
 }
 
 .theme-option:hover {
-    transform: scale(1.05);
     border-color: var(--energy);
 }
 

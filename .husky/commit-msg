@@ -1,0 +1,6 @@
+#!/bin/sh
+.
+# Husky commit-msg wrapper: ruft das bestehende Prüfscript in .githooks auf
+# Wird aktiv, nachdem Husky installiert wurde (siehe tasks/husky_install.md)
+
+sh .githooks/commit-msg "$1"

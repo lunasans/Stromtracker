@@ -127,9 +127,10 @@ function actionMigrate(string $root): array {
                 Database::rawExec($stmt);
             } catch (PDOException $e) {
                 $driverCode = (int) ($e->errorInfo[1] ?? 0);
-                // Tolerierbar: Objekt existiert bereits (idempotentes Re-Run)
-                //   1050 = Tabelle existiert, 1060 = Spalte existiert, 1061 = Index existiert
-                if (in_array($driverCode, [1050, 1060, 1061], true)) {
+                // Tolerierbar (idempotentes Re-Run):
+                //   1050 = Tabelle existiert, 1060 = Spalte existiert,
+                //   1061 = Index existiert, 1091 = Spalte/Index existiert nicht (DROP)
+                if (in_array($driverCode, [1050, 1060, 1061, 1091], true)) {
                     $lines[] = "   ↷ übersprungen (existiert bereits): " . shortStmt($stmt);
                     continue;
                 }

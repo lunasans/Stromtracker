@@ -6,21 +6,31 @@
 class BillingPeriod {
 
     /**
-     * Abrechnungs-Einstellungen eines Users laden.
-     * Fällt bei fehlenden Spalten (Migration noch nicht gelaufen) auf 1.1. zurück.
+     * Abrechnungs-Stichtag eines Users ermitteln.
+     *
+     * Wird direkt aus dem Beginn (valid_from) des aktiven Tarifs abgeleitet —
+     * der Abrechnungszeitraum startet mit dem Vertragsbeginn und wiederholt
+     * sich jährlich. Ohne aktiven Tarif gilt das Kalenderjahr (1.1.).
      */
     public static function getSettings(int $userId): array {
         $row = Database::fetchOne(
-            "SELECT billing_start_day, billing_start_month FROM users WHERE id = ?",
+            "SELECT valid_from FROM tariff_periods
+             WHERE user_id = ? AND is_active = 1
+             ORDER BY valid_from DESC LIMIT 1",
             [$userId]
         );
 
-        $day   = is_array($row) ? (int) ($row['billing_start_day'] ?? 1) : 1;
-        $month = is_array($row) ? (int) ($row['billing_start_month'] ?? 1) : 1;
+        if (!is_array($row) || empty($row['valid_from'])) {
+            return ['day' => 1, 'month' => 1]; // Kalenderjahr
+        }
 
-        // Grenzen absichern (Tag 1-28 vermeidet Schaltjahr-/Monatsend-Probleme)
-        $day   = max(1, min(28, $day));
-        $month = max(1, min(12, $month));
+        $ts = strtotime($row['valid_from']);
+        $day   = (int) date('j', $ts);
+        $month = (int) date('n', $ts);
+
+        // Tag 29-31 auf 28 begrenzen (vermeidet Schaltjahr-/Monatsend-Probleme
+        // bei der jährlichen Fortschreibung des Stichtags)
+        $day = min(28, $day);
 
         return ['day' => $day, 'month' => $month];
     }

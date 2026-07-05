@@ -37,7 +37,7 @@ class NotificationManager {
     }
     
     /**
-     * Benachrichtigungseinstellungen speichern (mit SMTP)
+     * Benachrichtigungseinstellungen speichern (FIXED mit direktem SQL)
      */
     public static function saveUserSettings($userId, $settings) {
         $existing = Database::fetchOne(
@@ -45,61 +45,130 @@ class NotificationManager {
             [$userId]
         );
         
-        $data = [
-            'email_notifications' => (bool)($settings['email_notifications'] ?? true),
-            'reading_reminder_enabled' => (bool)($settings['reading_reminder_enabled'] ?? true),
-            'reading_reminder_days' => (int)($settings['reading_reminder_days'] ?? 5),
-            'high_usage_alert' => (bool)($settings['high_usage_alert'] ?? false),
-            'high_usage_threshold' => (float)($settings['high_usage_threshold'] ?? 200.00),
-            'cost_alert_enabled' => (bool)($settings['cost_alert_enabled'] ?? false),
-            'cost_alert_threshold' => (float)($settings['cost_alert_threshold'] ?? 100.00)
-        ];
+        // Werte explizit in Integer konvertieren für DB
+        $emailNotifications = (bool)($settings['email_notifications'] ?? false) ? 1 : 0;
+        $readingReminderEnabled = (bool)($settings['reading_reminder_enabled'] ?? true) ? 1 : 0;
+        $readingReminderDays = (int)($settings['reading_reminder_days'] ?? 5);
+        $highUsageAlert = (bool)($settings['high_usage_alert'] ?? false) ? 1 : 0;
+        $highUsageThreshold = (float)($settings['high_usage_threshold'] ?? 200.00);
+        $costAlertEnabled = (bool)($settings['cost_alert_enabled'] ?? false) ? 1 : 0;
+        $costAlertThreshold = (float)($settings['cost_alert_threshold'] ?? 100.00);
         
-        // SMTP-Einstellungen
-        if (isset($settings['smtp_enabled'])) {
-            $data['smtp_enabled'] = (bool)$settings['smtp_enabled'];
+        $smtpEnabled = (bool)($settings['smtp_enabled'] ?? false) ? 1 : 0;
+        $smtpHost = trim($settings['smtp_host'] ?? '') ?: null;
+        $smtpPort = max(1, min(65535, (int)($settings['smtp_port'] ?? 587)));
+        $smtpEncryption = in_array(strtolower(trim($settings['smtp_encryption'] ?? 'tls')), ['tls', 'ssl', 'none']) 
+            ? strtolower(trim($settings['smtp_encryption'] ?? 'tls')) 
+            : 'tls';
+        $smtpUsername = trim($settings['smtp_username'] ?? '') ?: null;
+        $smtpFromEmail = trim($settings['smtp_from_email'] ?? '') ?: null;
+        $smtpFromName = trim($settings['smtp_from_name'] ?? 'Stromtracker') ?: 'Stromtracker';
+        
+        $telegramEnabled = (bool)($settings['telegram_enabled'] ?? false) ? 1 : 0;
+        $telegramChatId = trim($settings['telegram_chat_id'] ?? '') ?: null;
+        
+        // Passwort-Handling
+        $smtpPassword = null;
+        $updatePassword = false;
+        $newPassword = trim($settings['smtp_password'] ?? '');
+        if (!empty($newPassword) && $newPassword !== '********') {
+            $smtpPassword = $newPassword;
+            $updatePassword = true;
         }
-        if (isset($settings['smtp_host'])) {
-            $data['smtp_host'] = trim($settings['smtp_host']) ?: null;
-        }
-        if (isset($settings['smtp_port'])) {
-            $data['smtp_port'] = max(1, min(65535, (int)$settings['smtp_port']));
-        }
-        if (isset($settings['smtp_encryption'])) {
-            $encryption = strtolower(trim($settings['smtp_encryption']));
-            $data['smtp_encryption'] = in_array($encryption, ['tls', 'ssl', 'none']) ? $encryption : 'tls';
-        }
-        if (isset($settings['smtp_username'])) {
-            $data['smtp_username'] = trim($settings['smtp_username']) ?: null;
-        }
-        if (isset($settings['smtp_password'])) {
-            // Passwort nur speichern wenn neu eingegeben
-            $newPassword = trim($settings['smtp_password']);
-            if (!empty($newPassword) && $newPassword !== '********') {
-                $data['smtp_password'] = $newPassword;
+        
+        error_log("email_notifications wird gesetzt auf: " . $emailNotifications);
+        
+        try {
+            if ($existing) {
+                // UPDATE mit direktem SQL
+                $sql = "UPDATE notification_settings SET 
+                    email_notifications = ?,
+                    reading_reminder_enabled = ?,
+                    reading_reminder_days = ?,
+                    high_usage_alert = ?,
+                    high_usage_threshold = ?,
+                    cost_alert_enabled = ?,
+                    cost_alert_threshold = ?,
+                    smtp_enabled = ?,
+                    smtp_host = ?,
+                    smtp_port = ?,
+                    smtp_encryption = ?,
+                    smtp_username = ?,
+                    smtp_from_email = ?,
+                    smtp_from_name = ?,
+                    telegram_enabled = ?,
+                    telegram_chat_id = ?";
+                
+                $params = [
+                    $emailNotifications,
+                    $readingReminderEnabled,
+                    $readingReminderDays,
+                    $highUsageAlert,
+                    $highUsageThreshold,
+                    $costAlertEnabled,
+                    $costAlertThreshold,
+                    $smtpEnabled,
+                    $smtpHost,
+                    $smtpPort,
+                    $smtpEncryption,
+                    $smtpUsername,
+                    $smtpFromEmail,
+                    $smtpFromName,
+                    $telegramEnabled,
+                    $telegramChatId
+                ];
+                
+                // Passwort nur updaten wenn neu gesetzt
+                if ($updatePassword) {
+                    $sql .= ", smtp_password = ?";
+                    $params[] = $smtpPassword;
+                }
+                
+                $sql .= " WHERE user_id = ?";
+                $params[] = $userId;
+                
+                $result = Database::execute($sql, $params);
+                
+                if (!$result) {
+                    error_log("NotificationManager::saveUserSettings - UPDATE failed for user $userId");
+                }
+                
+                return $result !== false;
+                
+            } else {
+                // INSERT
+                $data = [
+                    'user_id' => $userId,
+                    'email_notifications' => $emailNotifications,
+                    'reading_reminder_enabled' => $readingReminderEnabled,
+                    'reading_reminder_days' => $readingReminderDays,
+                    'high_usage_alert' => $highUsageAlert,
+                    'high_usage_threshold' => $highUsageThreshold,
+                    'cost_alert_enabled' => $costAlertEnabled,
+                    'cost_alert_threshold' => $costAlertThreshold,
+                    'smtp_enabled' => $smtpEnabled,
+                    'smtp_host' => $smtpHost,
+                    'smtp_port' => $smtpPort,
+                    'smtp_encryption' => $smtpEncryption,
+                    'smtp_username' => $smtpUsername,
+                    'smtp_password' => $smtpPassword,
+                    'smtp_from_email' => $smtpFromEmail,
+                    'smtp_from_name' => $smtpFromName,
+                    'telegram_enabled' => $telegramEnabled,
+                    'telegram_chat_id' => $telegramChatId
+                ];
+                
+                $result = Database::insert('notification_settings', $data);
+                
+                if ($result === false) {
+                    error_log("NotificationManager::saveUserSettings - INSERT failed for user $userId");
+                }
+                
+                return $result !== false;
             }
-        }
-        if (isset($settings['smtp_from_email'])) {
-            $data['smtp_from_email'] = trim($settings['smtp_from_email']) ?: null;
-        }
-        if (isset($settings['smtp_from_name'])) {
-            $data['smtp_from_name'] = trim($settings['smtp_from_name']) ?: 'Stromtracker';
-        }
-        
-        // Telegram-Einstellungen
-        if (isset($settings['telegram_enabled'])) {
-            $data['telegram_enabled'] = (bool)$settings['telegram_enabled'];
-        }
-        if (isset($settings['telegram_chat_id'])) {
-            $data['telegram_chat_id'] = $settings['telegram_chat_id'];
-            $data['telegram_verified'] = false;
-        }
-        
-        if ($existing) {
-            return Database::update('notification_settings', $data, 'user_id = ?', [$userId]);
-        } else {
-            $data['user_id'] = $userId;
-            return Database::insert('notification_settings', $data);
+        } catch (Exception $e) {
+            error_log("NotificationManager::saveUserSettings - Exception for user $userId: " . $e->getMessage());
+            return false;
         }
     }
     
